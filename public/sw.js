@@ -1,4 +1,4 @@
-const CACHE_NAME = 'projeto-chat-v4'
+const CACHE_NAME = 'projeto-chat-v5'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
@@ -10,17 +10,28 @@ const STATIC_ASSETS = [
 ]
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)))
-  self.skipWaiting()
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME)
+
+    // Um ícone ausente não deve impedir a atualização inteira do PWA.
+    await Promise.allSettled(
+      STATIC_ASSETS.map((asset) => cache.add(new Request(asset, { cache: 'reload' }))),
+    )
+
+    await self.skipWaiting()
+  })())
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
-  )
-  self.clients.claim()
+  event.waitUntil((async () => {
+    const keys = await caches.keys()
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith('projeto-chat-') && key !== CACHE_NAME)
+        .map((key) => caches.delete(key)),
+    )
+    await self.clients.claim()
+  })())
 })
 
 self.addEventListener('fetch', (event) => {
@@ -31,12 +42,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin || url.pathname === '/sw.js') return
 
-  if (request.mode === 'navigate') {
-    event.respondWith(fetch(request))
-    return
-  }
-
-  if (url.pathname.startsWith('/assets/')) {
+  // HTML e bundles sempre vêm da rede para não prender o PWA em um deploy antigo.
+  if (request.mode === 'navigate' || url.pathname.startsWith('/assets/')) {
     event.respondWith(fetch(request))
     return
   }
