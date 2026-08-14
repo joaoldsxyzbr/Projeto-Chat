@@ -4,6 +4,7 @@ import App from './App.jsx'
 import './styles.css'
 import './functional.css'
 import './realtime.css'
+import './mobile.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
