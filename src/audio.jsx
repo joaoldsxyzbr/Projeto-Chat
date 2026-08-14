@@ -1,3 +1,4 @@
+import fixWebmDuration from 'fix-webm-duration'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
@@ -19,15 +20,53 @@ function formatarDuracao(segundos = 0) {
   return `${minutos}:${String(resto).padStart(2, '0')}`
 }
 
-export function AudioMessage({ caminho, duracao }) {
+function arquivoWebm(caminho = '', tipo = '') {
+  return tipo.includes('webm') || caminho.toLowerCase().endsWith('.webm')
+}
+
+async function corrigirWebm(blob, duracaoMs) {
+  if (!blob?.size || !duracaoMs) return blob
+  return fixWebmDuration(blob, duracaoMs, { logger: false })
+}
+
+export function AudioMessage({ caminho, duracao, tipo = '' }) {
   const [url, setUrl] = useState('')
   const [erro, setErro] = useState('')
 
   useEffect(() => {
     let ativo = true
+    let objectUrl = ''
 
     async function carregar() {
       if (!caminho) return
+
+      setErro('')
+      setUrl('')
+
+      if (arquivoWebm(caminho, tipo)) {
+        const { data, error } = await supabase.storage
+          .from(BUCKET_AUDIO)
+          .download(caminho)
+
+        if (!ativo) return
+
+        if (error) {
+          setErro('Não foi possível carregar o áudio.')
+          return
+        }
+
+        try {
+          const blobCorrigido = await corrigirWebm(data, Math.max(1, Number(duracao) || 1) * 1000)
+          if (!ativo) return
+
+          objectUrl = URL.createObjectURL(blobCorrigido)
+          setUrl(objectUrl)
+        } catch {
+          if (ativo) setErro('Não foi possível preparar o áudio para reprodução.')
+        }
+
+        return
+      }
 
       const { data, error } = await supabase.storage
         .from(BUCKET_AUDIO)
@@ -44,10 +83,12 @@ export function AudioMessage({ caminho, duracao }) {
     }
 
     carregar()
+
     return () => {
       ativo = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [caminho])
+  }, [caminho, duracao, tipo])
 
   if (erro) return <span className="audio-message-status audio-message-error">{erro}</span>
 
@@ -83,7 +124,7 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
     fluxoRef.current = null
   }
 
-  async function enviarBlob(blob, tipo, duracao, conversaDaGravacao) {
+  async function enviarBlob(blob, tipo, duracao, duracaoMs, conversaDaGravacao) {
     if (!conversaDaGravacao || !usuarioId) return
 
     setEnviandoAudio(true)
@@ -92,9 +133,13 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
     const caminho = `${conversaDaGravacao}/${usuarioId}/${identificador}.${extensao}`
 
     try {
+      const blobParaUpload = arquivoWebm('', tipo)
+        ? await corrigirWebm(blob, duracaoMs)
+        : blob
+
       const { error: erroUpload } = await supabase.storage
         .from(BUCKET_AUDIO)
-        .upload(caminho, blob, {
+        .upload(caminho, blobParaUpload, {
           contentType: tipo,
           cacheControl: '3600',
           upsert: false,
@@ -137,8 +182,6 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
       const fluxo = await navigator.mediaDevices.getUserMedia({ audio: true })
       fluxoRef.current = fluxo
 
-      // Preferimos MP4/AAC por compatibilidade entre iOS/Safari e Android/Chrome.
-      // O runtime escolhe apenas um formato que o aparelho realmente suporta.
       const candidatos = [
         'audio/mp4;codecs=mp4a.40.2',
         'audio/mp4; codecs=mp4a.40.2',
@@ -150,7 +193,7 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
         'audio/webm',
         'audio/ogg;codecs=opus',
       ]
-      const mimeType = candidatos.find((tipo) => MediaRecorder.isTypeSupported?.(tipo))
+      const mimeType = candidatos.find((valor) => MediaRecorder.isTypeSupported?.(valor))
       const gravador = mimeType ? new MediaRecorder(fluxo, { mimeType }) : new MediaRecorder(fluxo)
       const conversaDaGravacao = conversaId
 
@@ -166,7 +209,11 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
 
       gravador.addEventListener('stop', () => {
         const acao = acaoRef.current
-        const duracao = Math.max(1, Math.min(LIMITE_GRAVACAO_SEGUNDOS, Math.round((Date.now() - inicioRef.current) / 1000)))
+        const duracaoMs = Math.max(
+          1,
+          Math.min(LIMITE_GRAVACAO_SEGUNDOS * 1000, Date.now() - inicioRef.current),
+        )
+        const duracao = Math.max(1, Math.round(duracaoMs / 1000))
         const tipo = gravador.mimeType || partesRef.current[0]?.type || 'audio/webm'
         const blob = new Blob(partesRef.current, { type: tipo })
 
@@ -177,11 +224,11 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
         setTempoGravacao(0)
 
         if (acao === 'enviar' && blob.size > 0) {
-          enviarBlob(blob, tipo, duracao, conversaDaGravacao)
+          enviarBlob(blob, tipo, duracao, duracaoMs, conversaDaGravacao)
         }
       })
 
-      gravador.start(250)
+      gravador.start()
       setGravando(true)
 
       timerRef.current = setInterval(() => {
