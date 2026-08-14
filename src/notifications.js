@@ -3,8 +3,8 @@ import { supabase } from './supabase'
 const VAPID_PUBLIC_KEY = 'BBW4xJuaj_vkcx9NRgOge9cbP_Kjw25ldrGP9HilFeiNe1IDuJN5I1a5mKhMHxiWhwMezM8zTNjo3rWI7_xdyQ8'
 const SUPORTA_PUSH = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 
-let atualizandoInterface = false
 let sincronizando = false
+let observerInterface = null
 
 function chaveParaUint8Array(valor) {
   const padding = '='.repeat((4 - (valor.length % 4)) % 4)
@@ -88,7 +88,7 @@ async function garantirAssinatura(solicitarPermissao = false) {
     return false
   } finally {
     sincronizando = false
-    agendarInterface()
+    atualizarBotao()
   }
 }
 
@@ -104,9 +104,10 @@ async function atualizarBotao() {
   const assinatura = await obterAssinatura().catch(() => null)
   const ativa = Notification.permission === 'granted' && Boolean(assinatura)
   const bloqueada = Notification.permission === 'denied'
+  const icone = bloqueada ? '🔕' : '🔔'
 
   botao.classList.toggle('active', ativa)
-  botao.textContent = bloqueada ? '🔕' : '🔔'
+  if (botao.textContent !== icone) botao.textContent = icone
   botao.setAttribute(
     'aria-label',
     ativa ? 'Notificações ativas' : bloqueada ? 'Notificações bloqueadas' : 'Ativar notificações',
@@ -120,7 +121,12 @@ async function atualizarBotao() {
 
 function instalarBotao() {
   const footer = document.querySelector('.sidebar-footer')
-  if (!footer || footer.querySelector('.notification-toggle')) return
+  if (!footer) return false
+
+  if (footer.querySelector('.notification-toggle')) {
+    atualizarBotao()
+    return true
+  }
 
   const botao = document.createElement('button')
   botao.type = 'button'
@@ -142,36 +148,44 @@ function instalarBotao() {
   const sair = footer.querySelector('button[aria-label="Sair"]')
   footer.insertBefore(botao, sair || null)
   atualizarBotao()
+  return true
 }
 
-function agendarInterface() {
-  if (atualizandoInterface) return
-  atualizandoInterface = true
+function aguardarInterface() {
+  observerInterface?.disconnect()
+  observerInterface = null
 
-  requestAnimationFrame(() => {
-    atualizandoInterface = false
-    instalarBotao()
-    atualizarBotao()
+  if (instalarBotao()) return
+
+  observerInterface = new MutationObserver(() => {
+    if (!instalarBotao()) return
+    observerInterface?.disconnect()
+    observerInterface = null
   })
+
+  observerInterface.observe(document.documentElement, { childList: true, subtree: true })
 }
 
 if (SUPORTA_PUSH) {
-  const observer = new MutationObserver(agendarInterface)
-  observer.observe(document.documentElement, { childList: true, subtree: true })
-
   supabase.auth.getSession().then(({ data }) => {
     if (data.session && Notification.permission === 'granted') garantirAssinatura(false)
-    agendarInterface()
+    aguardarInterface()
   })
 
   supabase.auth.onAuthStateChange(async (evento, sessao) => {
     if (evento === 'SIGNED_OUT') {
+      observerInterface?.disconnect()
+      observerInterface = null
+
       const assinatura = await obterAssinatura().catch(() => null)
       if (assinatura) await assinatura.unsubscribe().catch(() => {})
-    } else if (sessao && Notification.permission === 'granted') {
+      return
+    }
+
+    if (sessao && Notification.permission === 'granted') {
       garantirAssinatura(false)
     }
 
-    agendarInterface()
+    aguardarInterface()
   })
 }
