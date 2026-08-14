@@ -10,5 +10,8 @@
 /sw.js
   Cache-Control: no-cache
 
+/pwa-boot.js
+  Cache-Control: no-cache
+
 /manifest.webmanifest
   Cache-Control: no-cache
