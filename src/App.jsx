@@ -203,12 +203,19 @@ function Chat({ usuario }) {
   const [usuariosOnline, setUsuariosOnline] = useState(() => new Set())
   const [estaDigitando, setEstaDigitando] = useState(false)
   const fimMensagensRef = useRef(null)
+  const mensagensAreaRef = useRef(null)
+  const seguirFimRef = useRef(true)
+  const conversaScrollRef = useRef(null)
+  const cargaSequenciaRef = useRef(0)
+  const realtimeTimerRef = useRef(null)
+  const deepLinkAplicadoRef = useRef(false)
   const canalDigitacaoRef = useRef(null)
   const digitacaoProntaRef = useRef(false)
   const digitandoEnviadoRef = useRef(false)
   const digitandoTimerRef = useRef(null)
 
   const carregarDados = useCallback(async (silencioso = false) => {
+    const sequencia = ++cargaSequenciaRef.current
     if (!silencioso) setCarregando(true)
 
     const [resPerfis, resConversas, resMensagens] = await Promise.all([
@@ -219,6 +226,8 @@ function Chat({ usuario }) {
         .select('id,conversa_id,remetente_id,conteudo,criada_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,duracao_segundos')
         .order('criada_em'),
     ])
+
+    if (sequencia !== cargaSequenciaRef.current) return
 
     const falha = resPerfis.error || resConversas.error || resMensagens.error
 
@@ -231,11 +240,30 @@ function Chat({ usuario }) {
       setMensagens(resMensagens.data || [])
     }
 
-    if (!silencioso) setCarregando(false)
+    setCarregando(false)
   }, [])
+
+  const agendarAtualizacao = useCallback(() => {
+    clearTimeout(realtimeTimerRef.current)
+    realtimeTimerRef.current = setTimeout(() => carregarDados(true), 90)
+  }, [carregarDados])
 
   useEffect(() => {
     carregarDados()
+  }, [carregarDados])
+
+  useEffect(() => {
+    const sincronizar = () => {
+      if (navigator.onLine && document.visibilityState === 'visible') carregarDados(true)
+    }
+
+    window.addEventListener('online', sincronizar)
+    document.addEventListener('visibilitychange', sincronizar)
+
+    return () => {
+      window.removeEventListener('online', sincronizar)
+      document.removeEventListener('visibilitychange', sincronizar)
+    }
   }, [carregarDados])
 
   useEffect(() => {
@@ -244,14 +272,15 @@ function Chat({ usuario }) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mensagens' },
-        () => carregarDados(true),
+        agendarAtualizacao,
       )
       .subscribe()
 
     return () => {
+      clearTimeout(realtimeTimerRef.current)
       supabase.removeChannel(canal)
     }
-  }, [carregarDados, usuario.id])
+  }, [agendarAtualizacao, usuario.id])
 
   useEffect(() => {
     let canal
@@ -338,6 +367,44 @@ function Chat({ usuario }) {
     if (!selecionadaExiste) setSelecionadaId(conversasMontadas[0].id)
   }, [conversasMontadas, selecionadaId])
 
+  useEffect(() => {
+    if (deepLinkAplicadoRef.current || carregando) return
+    deepLinkAplicadoRef.current = true
+
+    const conversaId = new URLSearchParams(window.location.search).get('conversa')
+    if (!conversaId) return
+
+    window.history.replaceState({}, '', window.location.pathname)
+
+    if (!conversasMontadas.some((conversa) => conversa.id === conversaId)) return
+
+    setSelecionadaId(conversaId)
+    setChatAbertoMobile(true)
+    seguirFimRef.current = true
+
+    if (window.matchMedia('(max-width: 740px)').matches) {
+      window.history.pushState({ projetoChatConversa: true, conversaId }, '')
+    }
+  }, [carregando, conversasMontadas])
+
+  useEffect(() => {
+    const aoNavegarHistorico = () => {
+      if (!window.matchMedia('(max-width: 740px)').matches) return
+
+      const estado = window.history.state
+      if (estado?.projetoChatConversa && estado.conversaId) {
+        setSelecionadaId(estado.conversaId)
+        setChatAbertoMobile(true)
+        seguirFimRef.current = true
+      } else {
+        setChatAbertoMobile(false)
+      }
+    }
+
+    window.addEventListener('popstate', aoNavegarHistorico)
+    return () => window.removeEventListener('popstate', aoNavegarHistorico)
+  }, [])
+
   const conversasFiltradas = useMemo(() => {
     const termo = busca.trim().toLocaleLowerCase('pt-BR')
     if (!termo) return conversasMontadas
@@ -371,8 +438,55 @@ function Chat({ usuario }) {
   })
 
   useEffect(() => {
-    fimMensagensRef.current?.scrollIntoView({ block: 'end' })
+    const mudouConversa = conversaScrollRef.current !== selecionadaId
+
+    if (mudouConversa) {
+      conversaScrollRef.current = selecionadaId
+      seguirFimRef.current = true
+    }
+
+    if (!mudouConversa && !seguirFimRef.current) return
+
+    requestAnimationFrame(() => {
+      fimMensagensRef.current?.scrollIntoView({ block: 'end' })
+    })
   }, [mensagensSelecionadas.length, selecionadaId])
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined
+
+    const enviarEstado = () => {
+      navigator.serviceWorker.controller?.postMessage({
+        type: 'CHAT_STATE',
+        conversa_id: selecionadaId,
+        visivel: document.visibilityState === 'visible',
+        chat_aberto: Boolean(selecionadaId) && (window.matchMedia('(min-width: 741px)').matches || chatAbertoMobile),
+      })
+    }
+
+    enviarEstado()
+    document.addEventListener('visibilitychange', enviarEstado)
+
+    navigator.serviceWorker.ready.then(enviarEstado).catch(() => {})
+
+    return () => document.removeEventListener('visibilitychange', enviarEstado)
+  }, [chatAbertoMobile, selecionadaId])
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined
+
+    const aoReceberMensagem = (event) => {
+      if (event.data?.type !== 'ABRIR_CONVERSA') return
+
+      const conversaId = event.data.conversa_id
+      if (!conversasMontadas.some((conversa) => conversa.id === conversaId)) return
+
+      abrirConversa(conversaId)
+    }
+
+    navigator.serviceWorker.addEventListener('message', aoReceberMensagem)
+    return () => navigator.serviceWorker.removeEventListener('message', aoReceberMensagem)
+  }, [conversasMontadas, gravando])
 
   useEffect(() => {
     let canal
@@ -495,15 +609,40 @@ function Chat({ usuario }) {
     }, 1200)
   }
 
+  function registrarHistoricoConversa(id) {
+    if (!window.matchMedia('(max-width: 740px)').matches) return
+
+    const estado = window.history.state || {}
+    if (estado.projetoChatConversa) {
+      window.history.replaceState({ ...estado, conversaId: id }, '')
+    } else {
+      window.history.pushState({ ...estado, projetoChatConversa: true, conversaId: id }, '')
+    }
+  }
+
   function abrirConversa(id) {
     if (gravando) cancelarGravacao()
+    seguirFimRef.current = true
     setSelecionadaId(id)
     setChatAbertoMobile(true)
+    registrarHistoricoConversa(id)
   }
 
   function voltarConversas() {
     if (gravando) cancelarGravacao()
     setChatAbertoMobile(false)
+
+    if (window.matchMedia('(max-width: 740px)').matches && window.history.state?.projetoChatConversa) {
+      window.history.back()
+    }
+  }
+
+  function acompanharScroll() {
+    const area = mensagensAreaRef.current
+    if (!area) return
+
+    const distanciaDoFim = area.scrollHeight - area.scrollTop - area.clientHeight
+    seguirFimRef.current = distanciaDoFim < 120
   }
 
   async function criarConversa(outroUsuarioId) {
@@ -540,9 +679,8 @@ function Chat({ usuario }) {
     }
 
     await carregarDados(true)
-    setSelecionadaId(conversaId)
     setNovaConversaAberta(false)
-    setChatAbertoMobile(true)
+    abrirConversa(conversaId)
   }
 
   async function enviarMensagem(event) {
@@ -554,6 +692,7 @@ function Chat({ usuario }) {
     clearTimeout(digitandoTimerRef.current)
     if (digitandoEnviadoRef.current) publicarDigitacao(false)
     digitandoEnviadoRef.current = false
+    seguirFimRef.current = true
     setEnviando(true)
     setErro('')
 
@@ -584,6 +723,8 @@ function Chat({ usuario }) {
 
   return (
     <main className={`app-shell ${chatAbertoMobile ? 'chat-open' : ''}`}>
+      {erro && <div className="global-error" role="alert">{erro}</div>}
+
       <aside className="sidebar">
         <header className="sidebar-header">
           <div>
@@ -598,8 +739,6 @@ function Chat({ usuario }) {
           <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar conversas" />
         </label>
 
-        {erro && <div className="inline-error">{erro}</div>}
-
         <div className="conversation-list">
           {conversasFiltradas.length === 0 ? (
             <div className="empty-list conversation-empty">Nenhuma conversa ainda. Use o botão + para começar.</div>
@@ -608,6 +747,7 @@ function Chat({ usuario }) {
               <button
                 key={conversa.id}
                 type="button"
+                data-conversa-id={conversa.id}
                 className={`conversation-item ${conversa.id === selecionadaId ? 'active' : ''}`}
                 onClick={() => abrirConversa(conversa.id)}
               >
@@ -653,7 +793,7 @@ function Chat({ usuario }) {
               </div>
             </header>
 
-            <div className="messages-area">
+            <div className="messages-area" ref={mensagensAreaRef} onScroll={acompanharScroll}>
               <div className="messages-column">
                 {mensagensSelecionadas.length === 0 && (
                   <div className="conversation-start">Envie a primeira mensagem para {selecionada.nome}.</div>
