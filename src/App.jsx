@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
+import { AudioMessage, useAudioRecorder } from './audio'
 
 function obterIniciais(nome = '') {
   return nome
@@ -213,7 +214,10 @@ function Chat({ usuario }) {
     const [resPerfis, resConversas, resMensagens] = await Promise.all([
       supabase.from('perfis').select('id,nome,criado_em').order('nome'),
       supabase.from('conversas').select('id,usuario_1_id,usuario_2_id,criada_em').order('criada_em', { ascending: false }),
-      supabase.from('mensagens').select('id,conversa_id,remetente_id,conteudo,criada_em,lida_em').order('criada_em'),
+      supabase
+        .from('mensagens')
+        .select('id,conversa_id,remetente_id,conteudo,criada_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,duracao_segundos')
+        .order('criada_em'),
     ])
 
     const falha = resPerfis.error || resConversas.error || resMensagens.error
@@ -316,7 +320,7 @@ function Chat({ usuario }) {
           outroId,
           perfil,
           nome: perfil?.nome || 'Usuário',
-          ultimaMensagem: ultima?.conteudo || 'Comece a conversa',
+          ultimaMensagem: ultima?.tipo === 'audio' ? '🎙️ Mensagem de áudio' : ultima?.conteudo || 'Comece a conversa',
           ultimaData: ultima?.criada_em || conversa.criada_em,
           naoLidas,
         }
@@ -351,6 +355,20 @@ function Chat({ usuario }) {
   const meuPerfil = perfisPorId.get(usuario.id)
   const meuNome = meuPerfil?.nome || usuario.user_metadata?.nome || usuario.email?.split('@')[0] || 'Usuário'
   const outroOnline = Boolean(selecionada && usuariosOnline.has(selecionada.outroId))
+
+  const {
+    gravando,
+    enviandoAudio,
+    tempoFormatado,
+    iniciarGravacao,
+    enviarGravacao,
+    cancelarGravacao,
+  } = useAudioRecorder({
+    conversaId: selecionadaId,
+    usuarioId: usuario.id,
+    onEnviado: () => carregarDados(true),
+    onErro: (mensagem) => setErro(mensagem),
+  })
 
   useEffect(() => {
     fimMensagensRef.current?.scrollIntoView({ block: 'end' })
@@ -478,8 +496,14 @@ function Chat({ usuario }) {
   }
 
   function abrirConversa(id) {
+    if (gravando) cancelarGravacao()
     setSelecionadaId(id)
     setChatAbertoMobile(true)
+  }
+
+  function voltarConversas() {
+    if (gravando) cancelarGravacao()
+    setChatAbertoMobile(false)
   }
 
   async function criarConversa(outroUsuarioId) {
@@ -525,7 +549,7 @@ function Chat({ usuario }) {
     event.preventDefault()
     const conteudo = texto.trim()
 
-    if (!conteudo || !selecionadaId || enviando) return
+    if (!conteudo || !selecionadaId || enviando || enviandoAudio || gravando) return
 
     clearTimeout(digitandoTimerRef.current)
     if (digitandoEnviadoRef.current) publicarDigitacao(false)
@@ -550,6 +574,7 @@ function Chat({ usuario }) {
   }
 
   async function sair() {
+    if (gravando) cancelarGravacao()
     await supabase.auth.signOut()
   }
 
@@ -618,7 +643,7 @@ function Chat({ usuario }) {
         {selecionada ? (
           <>
             <header className="chat-header">
-              <button className="back-button" type="button" onClick={() => setChatAbertoMobile(false)} aria-label="Voltar">‹</button>
+              <button className="back-button" type="button" onClick={voltarConversas} aria-label="Voltar">‹</button>
               <div className={`avatar ${outroOnline ? 'presence-online' : ''}`}>{obterIniciais(selecionada.nome)}</div>
               <div className="chat-person">
                 <strong>{selecionada.nome}</strong>
@@ -640,7 +665,11 @@ function Chat({ usuario }) {
                   return (
                     <div key={mensagem.id} className={`message-row ${propria ? 'mine' : ''}`}>
                       <div className="message-bubble">
-                        <p>{mensagem.conteudo}</p>
+                        {mensagem.tipo === 'audio' ? (
+                          <AudioMessage caminho={mensagem.arquivo_caminho} duracao={mensagem.duracao_segundos} />
+                        ) : (
+                          <p>{mensagem.conteudo}</p>
+                        )}
                         <div className="message-meta">
                           <time>{formatarHorario(mensagem.criada_em)}</time>
                           {propria && (
@@ -661,15 +690,46 @@ function Chat({ usuario }) {
               </div>
             </div>
 
-            <form className="composer composer-simple" onSubmit={enviarMensagem}>
-              <input
-                value={texto}
-                onChange={(event) => alterarTexto(event.target.value)}
-                placeholder="Digite uma mensagem"
-                aria-label="Mensagem"
-                maxLength={4000}
-              />
-              <button className="send-button" type="submit" aria-label="Enviar mensagem" disabled={enviando || !texto.trim()}>➤</button>
+            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem}>
+              {gravando ? (
+                <div className="audio-recording-status" aria-live="polite">
+                  <span className="audio-recording-dot" aria-hidden="true" />
+                  <span>Gravando {tempoFormatado}</span>
+                </div>
+              ) : (
+                <input
+                  value={texto}
+                  onChange={(event) => alterarTexto(event.target.value)}
+                  placeholder="Digite uma mensagem"
+                  aria-label="Mensagem"
+                  maxLength={4000}
+                  disabled={enviandoAudio}
+                />
+              )}
+
+              {gravando ? (
+                <button className="audio-cancel-button" type="button" onClick={cancelarGravacao} aria-label="Cancelar gravação">×</button>
+              ) : (
+                <button
+                  className="audio-record-button"
+                  type="button"
+                  onClick={iniciarGravacao}
+                  aria-label="Gravar áudio"
+                  disabled={enviando || enviandoAudio || Boolean(texto.trim())}
+                >
+                  🎙️
+                </button>
+              )}
+
+              <button
+                className="send-button"
+                type={gravando ? 'button' : 'submit'}
+                onClick={gravando ? enviarGravacao : undefined}
+                aria-label={gravando ? 'Enviar áudio' : 'Enviar mensagem'}
+                disabled={gravando ? false : enviando || enviandoAudio || !texto.trim()}
+              >
+                {enviandoAudio ? '…' : '➤'}
+              </button>
             </form>
           </>
         ) : (

@@ -1,0 +1,111 @@
+.composer-with-audio {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.audio-record-button,
+.audio-cancel-button {
+  width: 43px;
+  height: 43px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  font: inherit;
+  transition: background 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+
+.audio-record-button {
+  background: #141920;
+  color: #c8ced8;
+  font-size: 1.05rem;
+}
+
+.audio-record-button:hover:not(:disabled),
+.audio-cancel-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.audio-record-button:disabled,
+.audio-cancel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.audio-cancel-button {
+  background: #21171a;
+  color: #ffb2b8;
+  font-size: 1.25rem;
+}
+
+.audio-recording-status {
+  min-width: 0;
+  height: 46px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #2c2428;
+  border-radius: 15px;
+  background: #151216;
+  color: #e7e9ee;
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.audio-recording-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 999px;
+  background: #ff6673;
+  box-shadow: 0 0 0 5px rgba(255, 102, 115, 0.08);
+  animation: audio-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes audio-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
+}
+
+.audio-message {
+  min-width: min(280px, 68vw);
+  display: grid;
+  gap: 5px;
+}
+
+.audio-message audio {
+  width: 100%;
+  height: 36px;
+}
+
+.audio-message-status {
+  color: inherit;
+  font-size: 0.78rem;
+}
+
+.audio-message-error {
+  color: #ffb2b8;
+}
+
+@media (max-width: 740px) {
+  .composer-with-audio {
+    grid-template-columns: minmax(0, 1fr) 42px 42px;
+  }
+
+  .audio-record-button,
+  .audio-cancel-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .audio-recording-status {
+    height: 44px;
+  }
+
+  .audio-message {
+    min-width: min(250px, 74vw);
+  }
+}
