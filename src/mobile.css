@@ -1,4 +1,40 @@
 @media (max-width: 740px) {
+  .sidebar,
+  .chat-panel {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: none !important;
+    transition: none;
+  }
+
+  .sidebar {
+    z-index: 1;
+    display: flex;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .chat-panel {
+    z-index: 2;
+    display: none;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .app-shell.chat-open .sidebar {
+    display: none;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .app-shell.chat-open .chat-panel {
+    display: grid;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
   .chat-header {
     position: relative;
     z-index: 10;
@@ -26,19 +62,5 @@
   .back-button:active {
     transform: scale(0.96);
     background: #1a2029;
-  }
-
-  .app-shell:not(.chat-open) .chat-panel {
-    pointer-events: none;
-    visibility: hidden;
-  }
-
-  .app-shell.chat-open .chat-panel {
-    pointer-events: auto;
-    visibility: visible;
-  }
-
-  .app-shell:not(.chat-open) .sidebar {
-    pointer-events: auto;
   }
 }
