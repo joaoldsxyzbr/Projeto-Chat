@@ -1,0 +1,81 @@
+.app-error {
+  width: 100vw;
+  height: var(--app-height, 100dvh);
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: #080a0d;
+}
+
+.app-error-card {
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #0e1116;
+  text-align: center;
+}
+
+.app-error-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: #cbd1ff;
+  font-size: 1.5rem;
+}
+
+.app-error h1 {
+  font-size: 1.25rem;
+}
+
+.app-error p {
+  margin: 10px 0 20px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 740px) {
+  .app-shell,
+  .loading-screen,
+  .auth-page {
+    height: var(--app-height, 100dvh);
+  }
+
+  .conversation-list,
+  .messages-area,
+  .people-list {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .conversation-item,
+  .icon-button,
+  .back-button,
+  .send-button,
+  .audio-record-button,
+  .audio-cancel-button {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .sidebar-footer {
+    padding-bottom: max(11px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
