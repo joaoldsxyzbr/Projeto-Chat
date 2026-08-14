@@ -11,6 +11,7 @@ import './notifications.css'
 import './audio.css'
 import './quality.css'
 import './viewport.js'
+import './network.js'
 import './notifications.js'
 
 createRoot(document.getElementById('root')).render(
