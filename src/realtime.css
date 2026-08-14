@@ -1,0 +1,35 @@
+.avatar.presence-online {
+  position: relative;
+}
+
+.avatar.presence-online::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #0b0e13;
+  border-radius: 999px;
+  background: #55d88a;
+  box-shadow: 0 0 0 2px rgba(85, 216, 138, 0.08);
+}
+
+.chat-header .avatar.presence-online::after {
+  border-color: #0c0f14;
+}
+
+.typing-status {
+  color: #aab3ff !important;
+  font-weight: 700;
+}
+
+.read-receipt {
+  min-width: 14px;
+  text-align: right;
+  letter-spacing: -0.12em;
+}
+
+.read-receipt.read {
+  color: #d5d9ff;
+}
