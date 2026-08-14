@@ -6,6 +6,8 @@ import './functional.css'
 import './realtime.css'
 import './mobile.css'
 import './pwa.css'
+import './notifications.css'
+import './notifications.js'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
