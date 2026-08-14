@@ -35,7 +35,8 @@ async function salvarAssinatura(usuarioId, assinatura) {
 
   if (!error) return assinatura
 
-  await assinatura.unsubscribe()
+  // O endpoint pode ter pertencido a uma sessão antiga neste navegador.
+  await assinatura.unsubscribe().catch(() => {})
 
   const registration = await navigator.serviceWorker.ready
   const novaAssinatura = await registration.pushManager.subscribe({
@@ -51,7 +52,11 @@ async function salvarAssinatura(usuarioId, assinatura) {
     auth: nova.keys?.auth,
   })
 
-  if (novoErro) throw novoErro
+  if (novoErro) {
+    await novaAssinatura.unsubscribe().catch(() => {})
+    throw novoErro
+  }
+
   return novaAssinatura
 }
 
@@ -92,6 +97,38 @@ async function garantirAssinatura(solicitarPermissao = false) {
   }
 }
 
+async function desativarNotificacoes() {
+  if (!SUPORTA_PUSH || sincronizando) return false
+  sincronizando = true
+
+  try {
+    const assinatura = await obterAssinatura()
+    if (!assinatura) return true
+
+    const { data } = await supabase.auth.getSession()
+    const usuarioId = data.session?.user?.id
+
+    if (usuarioId) {
+      const { error } = await supabase
+        .from('assinaturas_push')
+        .delete()
+        .eq('usuario_id', usuarioId)
+        .eq('endpoint', assinatura.endpoint)
+
+      if (error) throw error
+    }
+
+    await assinatura.unsubscribe()
+    return true
+  } catch (error) {
+    console.error('Falha ao desativar notificações:', error)
+    return false
+  } finally {
+    sincronizando = false
+    atualizarBotao()
+  }
+}
+
 async function atualizarBotao() {
   const botao = document.querySelector('.notification-toggle')
   if (!botao) return
@@ -104,16 +141,16 @@ async function atualizarBotao() {
   const assinatura = await obterAssinatura().catch(() => null)
   const ativa = Notification.permission === 'granted' && Boolean(assinatura)
   const bloqueada = Notification.permission === 'denied'
-  const icone = bloqueada ? '🔕' : '🔔'
 
   botao.classList.toggle('active', ativa)
-  if (botao.textContent !== icone) botao.textContent = icone
+  botao.textContent = bloqueada ? '🔕' : '🔔'
+  botao.setAttribute('aria-pressed', String(ativa))
   botao.setAttribute(
     'aria-label',
-    ativa ? 'Notificações ativas' : bloqueada ? 'Notificações bloqueadas' : 'Ativar notificações',
+    ativa ? 'Desativar notificações' : bloqueada ? 'Notificações bloqueadas' : 'Ativar notificações',
   )
   botao.title = ativa
-    ? 'Notificações ativas'
+    ? 'Desativar notificações'
     : bloqueada
       ? 'Notificações bloqueadas no navegador'
       : 'Ativar notificações'
@@ -133,6 +170,7 @@ function instalarBotao() {
   botao.className = 'icon-button notification-toggle'
   botao.textContent = '🔔'
   botao.setAttribute('aria-label', 'Ativar notificações')
+  botao.setAttribute('aria-pressed', 'false')
 
   botao.addEventListener('click', async () => {
     if (Notification.permission === 'denied') {
@@ -141,7 +179,14 @@ function instalarBotao() {
     }
 
     botao.disabled = true
-    await garantirAssinatura(true)
+    const assinatura = await obterAssinatura().catch(() => null)
+
+    if (Notification.permission === 'granted' && assinatura) {
+      await desativarNotificacoes()
+    } else {
+      await garantirAssinatura(true)
+    }
+
     botao.disabled = false
   })
 
