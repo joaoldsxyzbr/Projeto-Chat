@@ -1,0 +1,27 @@
+.sidebar-footer {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.notification-toggle {
+  position: relative;
+  font-size: 1rem;
+}
+
+.notification-toggle.active::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #0f1319;
+  border-radius: 999px;
+  background: #55d88a;
+}
+
+@media (max-width: 740px) {
+  .notification-toggle {
+    width: 42px;
+    height: 42px;
+  }
+}
