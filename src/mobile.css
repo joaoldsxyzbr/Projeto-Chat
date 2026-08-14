@@ -1,0 +1,44 @@
+@media (max-width: 740px) {
+  .chat-header {
+    position: relative;
+    z-index: 10;
+    min-height: calc(66px + env(safe-area-inset-top));
+    padding-top: max(9px, env(safe-area-inset-top));
+  }
+
+  .back-button {
+    position: relative;
+    z-index: 12;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    background: #141920;
+    color: #f4f5f7;
+    font-size: 2rem;
+    line-height: 1;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .back-button:active {
+    transform: scale(0.96);
+    background: #1a2029;
+  }
+
+  .app-shell:not(.chat-open) .chat-panel {
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  .app-shell.chat-open .chat-panel {
+    pointer-events: auto;
+    visibility: visible;
+  }
+
+  .app-shell:not(.chat-open) .sidebar {
+    pointer-events: auto;
+  }
+}
