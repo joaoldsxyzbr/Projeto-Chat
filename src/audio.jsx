@@ -1,15 +1,16 @@
-import fixWebmDuration from 'fix-webm-duration'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
 const BUCKET_AUDIO = 'audios-chat'
-const LIMITE_GRAVACAO_SEGUNDOS = 600
+const LIMITE_MP4_SEGUNDOS = 600
+const LIMITE_WAV_SEGUNDOS = 300
+const TAXA_WAV = 16000
 
 function extensaoParaMime(tipo = '') {
-  if (tipo.includes('ogg')) return 'ogg'
   if (tipo.includes('mp4')) return 'm4a'
-  if (tipo.includes('mpeg')) return 'mp3'
   if (tipo.includes('wav')) return 'wav'
+  if (tipo.includes('ogg')) return 'ogg'
+  if (tipo.includes('mpeg')) return 'mp3'
   return 'webm'
 }
 
@@ -20,53 +21,94 @@ function formatarDuracao(segundos = 0) {
   return `${minutos}:${String(resto).padStart(2, '0')}`
 }
 
-function arquivoWebm(caminho = '', tipo = '') {
-  return tipo.includes('webm') || caminho.toLowerCase().endsWith('.webm')
+function escreverTexto(view, offset, texto) {
+  for (let i = 0; i < texto.length; i += 1) view.setUint8(offset + i, texto.charCodeAt(i))
 }
 
-async function corrigirWebm(blob, duracaoMs) {
-  if (!blob?.size || !duracaoMs) return blob
-  return fixWebmDuration(blob, duracaoMs, { logger: false })
+function reduzirAmostras(amostras, taxaOrigem, taxaDestino) {
+  if (taxaOrigem <= taxaDestino) return { amostras, taxa: taxaOrigem }
+
+  const proporcao = taxaOrigem / taxaDestino
+  const tamanho = Math.floor(amostras.length / proporcao)
+  const saida = new Float32Array(tamanho)
+
+  for (let i = 0; i < tamanho; i += 1) {
+    const inicio = Math.floor(i * proporcao)
+    const fim = Math.min(amostras.length, Math.floor((i + 1) * proporcao))
+    let soma = 0
+    let quantidade = 0
+
+    for (let j = inicio; j < fim; j += 1) {
+      soma += amostras[j]
+      quantidade += 1
+    }
+
+    saida[i] = quantidade ? soma / quantidade : 0
+  }
+
+  return { amostras: saida, taxa: taxaDestino }
 }
 
-export function AudioMessage({ caminho, duracao, tipo = '' }) {
+function criarWav(partes, taxaOrigem) {
+  const total = partes.reduce((soma, parte) => soma + parte.length, 0)
+  const unidas = new Float32Array(total)
+  let offset = 0
+
+  partes.forEach((parte) => {
+    unidas.set(parte, offset)
+    offset += parte.length
+  })
+
+  const { amostras, taxa } = reduzirAmostras(unidas, taxaOrigem, TAXA_WAV)
+  const buffer = new ArrayBuffer(44 + amostras.length * 2)
+  const view = new DataView(buffer)
+
+  escreverTexto(view, 0, 'RIFF')
+  view.setUint32(4, 36 + amostras.length * 2, true)
+  escreverTexto(view, 8, 'WAVE')
+  escreverTexto(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, taxa, true)
+  view.setUint32(28, taxa * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  escreverTexto(view, 36, 'data')
+  view.setUint32(40, amostras.length * 2, true)
+
+  let posicao = 44
+  for (let i = 0; i < amostras.length; i += 1) {
+    const valor = Math.max(-1, Math.min(1, amostras[i]))
+    view.setInt16(posicao, valor < 0 ? valor * 0x8000 : valor * 0x7fff, true)
+    posicao += 2
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+function mimeMp4Suportado() {
+  if (!window.MediaRecorder?.isTypeSupported) return ''
+
+  return [
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4; codecs=mp4a.40.2',
+    'audio/mp4',
+  ].find((tipo) => MediaRecorder.isTypeSupported(tipo)) || ''
+}
+
+export function AudioMessage({ caminho, duracao }) {
   const [url, setUrl] = useState('')
   const [erro, setErro] = useState('')
 
   useEffect(() => {
     let ativo = true
-    let objectUrl = ''
 
     async function carregar() {
       if (!caminho) return
 
       setErro('')
       setUrl('')
-
-      if (arquivoWebm(caminho, tipo)) {
-        const { data, error } = await supabase.storage
-          .from(BUCKET_AUDIO)
-          .download(caminho)
-
-        if (!ativo) return
-
-        if (error) {
-          setErro('Não foi possível carregar o áudio.')
-          return
-        }
-
-        try {
-          const blobCorrigido = await corrigirWebm(data, Math.max(1, Number(duracao) || 1) * 1000)
-          if (!ativo) return
-
-          objectUrl = URL.createObjectURL(blobCorrigido)
-          setUrl(objectUrl)
-        } catch {
-          if (ativo) setErro('Não foi possível preparar o áudio para reprodução.')
-        }
-
-        return
-      }
 
       const { data, error } = await supabase.storage
         .from(BUCKET_AUDIO)
@@ -83,12 +125,10 @@ export function AudioMessage({ caminho, duracao, tipo = '' }) {
     }
 
     carregar()
-
     return () => {
       ativo = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [caminho, duracao, tipo])
+  }, [caminho])
 
   if (erro) return <span className="audio-message-status audio-message-error">{erro}</span>
 
@@ -106,26 +146,48 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
   const [tempoGravacao, setTempoGravacao] = useState(0)
 
   const gravadorRef = useRef(null)
+  const wavRef = useRef(null)
   const fluxoRef = useRef(null)
   const partesRef = useRef([])
   const inicioRef = useRef(0)
   const timerRef = useRef(null)
+  const limiteRef = useRef(LIMITE_MP4_SEGUNDOS)
   const acaoRef = useRef('cancelar')
-  const conversaRef = useRef(conversaId)
 
-  useEffect(() => {
-    conversaRef.current = conversaId
-  }, [conversaId])
-
-  function liberarMicrofone() {
+  function limparTimer() {
     clearInterval(timerRef.current)
     timerRef.current = null
+  }
+
+  function pararFluxo() {
     fluxoRef.current?.getTracks().forEach((track) => track.stop())
     fluxoRef.current = null
   }
 
-  async function enviarBlob(blob, tipo, duracao, duracaoMs, conversaDaGravacao) {
-    if (!conversaDaGravacao || !usuarioId) return
+  function limparWav() {
+    const atual = wavRef.current
+    if (!atual) return
+
+    atual.processador.onaudioprocess = null
+    atual.fonte.disconnect()
+    atual.processador.disconnect()
+    atual.silencio.disconnect()
+    atual.contexto.close().catch(() => {})
+    wavRef.current = null
+  }
+
+  function encerrarCaptura() {
+    limparTimer()
+    limparWav()
+    pararFluxo()
+    gravadorRef.current = null
+    partesRef.current = []
+    setGravando(false)
+    setTempoGravacao(0)
+  }
+
+  async function enviarBlob(blob, tipo, duracao, conversaDaGravacao) {
+    if (!conversaDaGravacao || !usuarioId || !blob?.size) return
 
     setEnviandoAudio(true)
     const extensao = extensaoParaMime(tipo)
@@ -133,13 +195,9 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
     const caminho = `${conversaDaGravacao}/${usuarioId}/${identificador}.${extensao}`
 
     try {
-      const blobParaUpload = arquivoWebm('', tipo)
-        ? await corrigirWebm(blob, duracaoMs)
-        : blob
-
       const { error: erroUpload } = await supabase.storage
         .from(BUCKET_AUDIO)
-        .upload(caminho, blobParaUpload, {
+        .upload(caminho, blob, {
           contentType: tipo,
           cacheControl: '3600',
           upsert: false,
@@ -170,78 +228,133 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
     }
   }
 
+  function duracaoAtual() {
+    return Math.max(1, Math.round((Date.now() - inicioRef.current) / 1000))
+  }
+
+  function finalizarWav(enviar) {
+    const atual = wavRef.current
+    if (!atual) return
+
+    const partes = atual.partes
+    const taxa = atual.contexto.sampleRate
+    const conversaDaGravacao = atual.conversaId
+    const duracao = Math.min(LIMITE_WAV_SEGUNDOS, duracaoAtual())
+
+    encerrarCaptura()
+
+    if (!enviar || !partes.length) return
+
+    try {
+      const blob = criarWav(partes, taxa)
+      enviarBlob(blob, 'audio/wav', duracao, conversaDaGravacao)
+    } catch (error) {
+      onErro?.(error.message || 'Não foi possível preparar o áudio.')
+    }
+  }
+
+  function iniciarTimer() {
+    timerRef.current = setInterval(() => {
+      const segundos = Math.min(limiteRef.current, Math.floor((Date.now() - inicioRef.current) / 1000))
+      setTempoGravacao(segundos)
+
+      if (segundos >= limiteRef.current) pararGravacao(true)
+    }, 500)
+  }
+
   async function iniciarGravacao() {
     if (gravando || enviandoAudio || !conversaId) return
 
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       onErro?.('Este navegador não oferece suporte à gravação de áudio.')
       return
     }
 
     try {
-      const fluxo = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const fluxo = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+
       fluxoRef.current = fluxo
-
-      const candidatos = [
-        'audio/mp4;codecs=mp4a.40.2',
-        'audio/mp4; codecs=mp4a.40.2',
-        'audio/mp4;codecs=opus',
-        'audio/mp4; codecs=opus',
-        'audio/mp4',
-        'audio/webm;codecs=opus',
-        'audio/webm; codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-      ]
-      const mimeType = candidatos.find((valor) => MediaRecorder.isTypeSupported?.(valor))
-      const gravador = mimeType ? new MediaRecorder(fluxo, { mimeType }) : new MediaRecorder(fluxo)
-      const conversaDaGravacao = conversaId
-
-      gravadorRef.current = gravador
-      partesRef.current = []
-      acaoRef.current = 'cancelar'
       inicioRef.current = Date.now()
       setTempoGravacao(0)
 
-      gravador.addEventListener('dataavailable', (event) => {
-        if (event.data?.size) partesRef.current.push(event.data)
-      })
+      const mimeMp4 = mimeMp4Suportado()
 
-      gravador.addEventListener('stop', () => {
-        const acao = acaoRef.current
-        const duracaoMs = Math.max(
-          1,
-          Math.min(LIMITE_GRAVACAO_SEGUNDOS * 1000, Date.now() - inicioRef.current),
-        )
-        const duracao = Math.max(1, Math.round(duracaoMs / 1000))
-        const tipo = gravador.mimeType || partesRef.current[0]?.type || 'audio/webm'
-        const blob = new Blob(partesRef.current, { type: tipo })
+      if (mimeMp4) {
+        limiteRef.current = LIMITE_MP4_SEGUNDOS
+        const gravador = new MediaRecorder(fluxo, { mimeType: mimeMp4 })
+        const conversaDaGravacao = conversaId
 
-        liberarMicrofone()
-        gravadorRef.current = null
+        gravadorRef.current = gravador
         partesRef.current = []
-        setGravando(false)
-        setTempoGravacao(0)
+        acaoRef.current = 'cancelar'
 
-        if (acao === 'enviar' && blob.size > 0) {
-          enviarBlob(blob, tipo, duracao, duracaoMs, conversaDaGravacao)
+        gravador.addEventListener('dataavailable', (event) => {
+          if (event.data?.size) partesRef.current.push(event.data)
+        })
+
+        gravador.addEventListener('stop', () => {
+          const enviar = acaoRef.current === 'enviar'
+          const tipo = gravador.mimeType || mimeMp4
+          const blob = new Blob(partesRef.current, { type: tipo })
+          const duracao = Math.min(LIMITE_MP4_SEGUNDOS, duracaoAtual())
+
+          encerrarCaptura()
+          if (enviar && blob.size) enviarBlob(blob, tipo, duracao, conversaDaGravacao)
+        })
+
+        gravador.start()
+      } else {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext
+        if (!AudioContextClass) throw new Error('Este navegador não oferece um formato de áudio compatível.')
+
+        limiteRef.current = LIMITE_WAV_SEGUNDOS
+
+        let contexto
+        try {
+          contexto = new AudioContextClass({ sampleRate: TAXA_WAV })
+        } catch {
+          contexto = new AudioContextClass()
         }
-      })
 
-      gravador.start()
+        await contexto.resume()
+
+        const fonte = contexto.createMediaStreamSource(fluxo)
+        const processador = contexto.createScriptProcessor(4096, 1, 1)
+        const silencio = contexto.createGain()
+        silencio.gain.value = 0
+
+        const partes = []
+        processador.onaudioprocess = (event) => {
+          partes.push(new Float32Array(event.inputBuffer.getChannelData(0)))
+        }
+
+        fonte.connect(processador)
+        processador.connect(silencio)
+        silencio.connect(contexto.destination)
+
+        wavRef.current = {
+          contexto,
+          fonte,
+          processador,
+          silencio,
+          partes,
+          conversaId,
+        }
+      }
+
       setGravando(true)
-
-      timerRef.current = setInterval(() => {
-        const segundos = Math.min(LIMITE_GRAVACAO_SEGUNDOS, Math.floor((Date.now() - inicioRef.current) / 1000))
-        setTempoGravacao(segundos)
-
-        if (segundos >= LIMITE_GRAVACAO_SEGUNDOS && gravador.state !== 'inactive') {
-          acaoRef.current = 'enviar'
-          gravador.stop()
-        }
-      }, 500)
+      iniciarTimer()
     } catch (error) {
-      liberarMicrofone()
+      limparTimer()
+      limparWav()
+      pararFluxo()
       onErro?.(
         error?.name === 'NotAllowedError'
           ? 'Permita o acesso ao microfone para enviar áudio.'
@@ -251,6 +364,11 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
   }
 
   function pararGravacao(enviar) {
+    if (wavRef.current) {
+      finalizarWav(enviar)
+      return
+    }
+
     const gravador = gravadorRef.current
     if (!gravador || gravador.state === 'inactive') return
 
@@ -261,11 +379,14 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
   useEffect(() => {
     return () => {
       acaoRef.current = 'cancelar'
-      clearInterval(timerRef.current)
+      limparTimer()
+
       if (gravadorRef.current && gravadorRef.current.state !== 'inactive') {
         gravadorRef.current.stop()
       }
-      fluxoRef.current?.getTracks().forEach((track) => track.stop())
+
+      limparWav()
+      pararFluxo()
     }
   }, [])
 
