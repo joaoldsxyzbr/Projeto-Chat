@@ -609,6 +609,14 @@ function Chat({ usuario }) {
     }, 1200)
   }
 
+  function aoTeclarMensagem(event) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    if (window.matchMedia('(max-width: 740px)').matches) return
+
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   function registrarHistoricoConversa(id) {
     if (!window.matchMedia('(max-width: 740px)').matches) return
 
@@ -696,20 +704,22 @@ function Chat({ usuario }) {
     setEnviando(true)
     setErro('')
 
-    const { error } = await supabase.from('mensagens').insert({
-      conversa_id: selecionadaId,
-      remetente_id: usuario.id,
-      conteudo,
-    })
+    try {
+      const { error } = await supabase.from('mensagens').insert({
+        conversa_id: selecionadaId,
+        remetente_id: usuario.id,
+        conteudo,
+      })
 
-    if (error) {
-      setErro(error.message)
-    } else {
+      if (error) throw error
+
       setTexto('')
       await carregarDados(true)
+    } catch (error) {
+      setErro(error.message || 'Não foi possível enviar a mensagem.')
+    } finally {
+      setEnviando(false)
     }
-
-    setEnviando(false)
   }
 
   async function sair() {
@@ -830,18 +840,20 @@ function Chat({ usuario }) {
               </div>
             </div>
 
-            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem}>
+            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem} aria-busy={enviando || enviandoAudio}>
               {gravando ? (
                 <div className="audio-recording-status" aria-live="polite">
                   <span className="audio-recording-dot" aria-hidden="true" />
                   <span>Gravando {tempoFormatado}</span>
                 </div>
               ) : (
-                <input
+                <textarea
                   value={texto}
                   onChange={(event) => alterarTexto(event.target.value)}
+                  onKeyDown={aoTeclarMensagem}
                   placeholder="Digite uma mensagem"
                   aria-label="Mensagem"
+                  rows="1"
                   maxLength={4000}
                   disabled={enviandoAudio}
                 />
@@ -862,13 +874,13 @@ function Chat({ usuario }) {
               )}
 
               <button
-                className="send-button"
+                className={`send-button ${enviando || enviandoAudio ? 'is-sending' : ''}`}
                 type={gravando ? 'button' : 'submit'}
                 onClick={gravando ? enviarGravacao : undefined}
                 aria-label={gravando ? 'Enviar áudio' : 'Enviar mensagem'}
                 disabled={gravando ? false : enviando || enviandoAudio || !texto.trim()}
               >
-                {enviandoAudio ? '…' : '➤'}
+                {enviando || enviandoAudio ? '…' : '➤'}
               </button>
             </form>
           </>
