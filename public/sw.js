@@ -1,4 +1,4 @@
-const CACHE_NAME = 'projeto-chat-v3'
+const CACHE_NAME = 'projeto-chat-v4'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
@@ -54,4 +54,53 @@ self.addEventListener('fetch', (event) => {
       })
     }),
   )
+})
+
+self.addEventListener('push', (event) => {
+  event.waitUntil((async () => {
+    let payload = {}
+
+    try {
+      payload = event.data?.json() || {}
+    } catch {
+      payload = { body: event.data?.text() || 'Nova mensagem' }
+    }
+
+    const janelas = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    })
+
+    if (janelas.some((janela) => janela.visibilityState === 'visible')) return
+
+    await self.registration.showNotification(payload.title || 'Projeto Chat', {
+      body: payload.body || 'Você recebeu uma nova mensagem.',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/favicon-32.png',
+      tag: payload.conversa_id ? `conversa-${payload.conversa_id}` : 'projeto-chat',
+      renotify: true,
+      data: {
+        conversa_id: payload.conversa_id || null,
+        url: '/',
+      },
+    })
+  })())
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  event.waitUntil((async () => {
+    const janelas = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    })
+
+    if (janelas.length > 0) {
+      await janelas[0].focus()
+      return
+    }
+
+    await self.clients.openWindow('/')
+  })())
 })
