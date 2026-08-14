@@ -154,12 +154,41 @@ html[data-conexao='offline'] body::after {
   background: #0d1015;
 }
 
-.composer input {
+.composer input,
+.composer textarea {
   transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
 }
 
-.composer input:focus {
+.composer input:focus,
+.composer textarea:focus {
   box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.06);
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 116px;
+  padding: 11px 15px;
+  border: 1px solid #222934;
+  border-radius: 15px;
+  outline: 0;
+  resize: none;
+  field-sizing: content;
+  overflow-y: auto;
+  background: #12161d;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+  scrollbar-width: thin;
+}
+
+.composer textarea:focus {
+  border-color: #343d4a;
+  background: #141920;
+}
+
+.composer textarea::placeholder {
+  color: #687281;
 }
 
 .send-button {
@@ -173,6 +202,16 @@ html[data-conexao='offline'] body::after {
 
 .send-button:disabled {
   box-shadow: none;
+}
+
+.send-button.is-sending {
+  animation: sending-pulse 700ms ease-in-out infinite alternate;
+}
+
+@keyframes sending-pulse {
+  to {
+    opacity: 0.62;
+  }
 }
 
 .typing-status {
@@ -214,6 +253,11 @@ html[data-conexao='offline'] body::after {
 
   .message-bubble {
     max-width: 88%;
+  }
+
+  .composer textarea {
+    min-height: 44px;
+    max-height: 104px;
   }
 }
 
