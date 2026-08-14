@@ -1,4 +1,4 @@
-const CACHE_NAME = 'projeto-chat-v5'
+const CACHE_NAME = 'projeto-chat-v6'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
@@ -9,11 +9,12 @@ const STATIC_ASSETS = [
   '/icons/apple-touch-icon.png',
 ]
 
+const estadosClientes = new Map()
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME)
 
-    // Um ícone ausente não deve impedir a atualização inteira do PWA.
     await Promise.allSettled(
       STATIC_ASSETS.map((asset) => cache.add(new Request(asset, { cache: 'reload' }))),
     )
@@ -34,6 +35,16 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'CHAT_STATE' || !event.source?.id) return
+
+  estadosClientes.set(event.source.id, {
+    conversa_id: event.data.conversa_id || null,
+    visivel: Boolean(event.data.visivel),
+    chat_aberto: Boolean(event.data.chat_aberto),
+  })
+})
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
 
@@ -42,7 +53,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin || url.pathname === '/sw.js') return
 
-  // HTML e bundles sempre vêm da rede para não prender o PWA em um deploy antigo.
   if (request.mode === 'navigate' || url.pathname.startsWith('/assets/')) {
     event.respondWith(fetch(request))
     return
@@ -78,7 +88,15 @@ self.addEventListener('push', (event) => {
       includeUncontrolled: true,
     })
 
-    if (janelas.some((janela) => janela.visibilityState === 'visible')) return
+    const conversaJaAberta = Boolean(payload.conversa_id) && janelas.some((janela) => {
+      const estado = estadosClientes.get(janela.id)
+      return janela.visibilityState === 'visible'
+        && estado?.visivel
+        && estado?.chat_aberto
+        && estado?.conversa_id === payload.conversa_id
+    })
+
+    if (conversaJaAberta) return
 
     await self.registration.showNotification(payload.title || 'Projeto Chat', {
       body: payload.body || 'Você recebeu uma nova mensagem.',
@@ -88,7 +106,6 @@ self.addEventListener('push', (event) => {
       renotify: true,
       data: {
         conversa_id: payload.conversa_id || null,
-        url: '/',
       },
     })
   })())
@@ -98,16 +115,24 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
   event.waitUntil((async () => {
+    const conversaId = event.notification.data?.conversa_id || null
     const janelas = await self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true,
     })
 
     if (janelas.length > 0) {
-      await janelas[0].focus()
+      const janela = janelas.find((item) => item.visibilityState === 'visible') || janelas[0]
+
+      if (conversaId) {
+        janela.postMessage({ type: 'ABRIR_CONVERSA', conversa_id: conversaId })
+      }
+
+      await janela.focus()
       return
     }
 
-    await self.clients.openWindow('/')
+    const destino = conversaId ? `/?conversa=${encodeURIComponent(conversaId)}` : '/'
+    await self.clients.openWindow(destino)
   })())
 })
