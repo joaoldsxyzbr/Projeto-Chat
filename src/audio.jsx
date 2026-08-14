@@ -5,6 +5,9 @@ const BUCKET_AUDIO = 'audios-chat'
 const LIMITE_MP4_SEGUNDOS = 600
 const LIMITE_WAV_SEGUNDOS = 300
 const TAXA_WAV = 16000
+const VELOCIDADES = [1, 1.5, 2]
+
+let audioAtivo = null
 
 function extensaoParaMime(tipo = '') {
   if (tipo.includes('mp4')) return 'm4a'
@@ -15,7 +18,7 @@ function extensaoParaMime(tipo = '') {
 }
 
 function formatarDuracao(segundos = 0) {
-  const total = Math.max(0, Math.floor(segundos))
+  const total = Math.max(0, Math.floor(Number(segundos) || 0))
   const minutos = Math.floor(total / 60)
   const resto = total % 60
   return `${minutos}:${String(resto).padStart(2, '0')}`
@@ -100,6 +103,11 @@ function mimeMp4Suportado() {
 export function AudioMessage({ caminho, duracao }) {
   const [url, setUrl] = useState('')
   const [erro, setErro] = useState('')
+  const [tocando, setTocando] = useState(false)
+  const [tempoAtual, setTempoAtual] = useState(0)
+  const [duracaoReal, setDuracaoReal] = useState(Number(duracao) || 0)
+  const [velocidade, setVelocidade] = useState(1)
+  const audioRef = useRef(null)
 
   useEffect(() => {
     let ativo = true
@@ -109,6 +117,9 @@ export function AudioMessage({ caminho, duracao }) {
 
       setErro('')
       setUrl('')
+      setTocando(false)
+      setTempoAtual(0)
+      setDuracaoReal(Number(duracao) || 0)
 
       const { data, error } = await supabase.storage
         .from(BUCKET_AUDIO)
@@ -128,14 +139,128 @@ export function AudioMessage({ caminho, duracao }) {
     return () => {
       ativo = false
     }
-  }, [caminho])
+  }, [caminho, duracao])
 
-  if (erro) return <span className="audio-message-status audio-message-error">{erro}</span>
+  useEffect(() => {
+    const audio = audioRef.current
+
+    return () => {
+      audio?.pause()
+      if (audioAtivo === audio) audioAtivo = null
+    }
+  }, [url])
+
+  function atualizarDuracao() {
+    const audio = audioRef.current
+    if (!audio) return
+
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      setDuracaoReal(audio.duration)
+    }
+  }
+
+  async function alternarReproducao() {
+    const audio = audioRef.current
+    if (!audio || !url) return
+
+    setErro('')
+
+    if (!audio.paused) {
+      audio.pause()
+      return
+    }
+
+    if (audioAtivo && audioAtivo !== audio) audioAtivo.pause()
+    if (duracaoReal > 0 && audio.currentTime >= duracaoReal - 0.05) audio.currentTime = 0
+
+    audioAtivo = audio
+
+    try {
+      await audio.play()
+    } catch {
+      if (audioAtivo === audio) audioAtivo = null
+      setErro('Não foi possível reproduzir este áudio.')
+    }
+  }
+
+  function alterarProgresso(event) {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const novoTempo = Number(event.target.value)
+    audio.currentTime = novoTempo
+    setTempoAtual(novoTempo)
+  }
+
+  function alternarVelocidade() {
+    const indiceAtual = VELOCIDADES.indexOf(velocidade)
+    const proxima = VELOCIDADES[(indiceAtual + 1) % VELOCIDADES.length]
+    setVelocidade(proxima)
+    if (audioRef.current) audioRef.current.playbackRate = proxima
+  }
+
+  if (erro && !url) return <span className="audio-message-status audio-message-error">{erro}</span>
+
+  const limite = Math.max(1, duracaoReal || Number(duracao) || 1)
 
   return (
     <div className="audio-message">
-      {url ? <audio controls preload="metadata" src={url} /> : <span className="audio-message-status">Carregando áudio...</span>}
-      {duracao ? <span className="audio-message-status">{formatarDuracao(duracao)}</span> : null}
+      <audio
+        ref={audioRef}
+        className="audio-native"
+        preload="metadata"
+        src={url || undefined}
+        onLoadedMetadata={atualizarDuracao}
+        onDurationChange={atualizarDuracao}
+        onTimeUpdate={(event) => setTempoAtual(event.currentTarget.currentTime)}
+        onPlay={() => setTocando(true)}
+        onPause={() => setTocando(false)}
+        onEnded={() => {
+          setTocando(false)
+          setTempoAtual(0)
+          if (audioAtivo === audioRef.current) audioAtivo = null
+        }}
+        onError={() => url && setErro('Este áudio não pôde ser reproduzido.')}
+      />
+
+      <button
+        className="audio-play-button"
+        type="button"
+        onClick={alternarReproducao}
+        disabled={!url}
+        aria-label={tocando ? 'Pausar áudio' : 'Reproduzir áudio'}
+      >
+        {url ? (tocando ? '❚❚' : '▶') : '…'}
+      </button>
+
+      <div className="audio-track">
+        <input
+          type="range"
+          min="0"
+          max={limite}
+          step="0.1"
+          value={Math.min(tempoAtual, limite)}
+          onChange={alterarProgresso}
+          disabled={!url}
+          aria-label="Progresso do áudio"
+        />
+        <div className="audio-time">
+          <span>{formatarDuracao(tempoAtual)}</span>
+          <span>{formatarDuracao(limite)}</span>
+        </div>
+      </div>
+
+      <button
+        className="audio-speed-button"
+        type="button"
+        onClick={alternarVelocidade}
+        disabled={!url}
+        aria-label={`Velocidade ${String(velocidade).replace('.', ',')} vezes`}
+      >
+        {String(velocidade).replace('.', ',')}×
+      </button>
+
+      {erro && <span className="audio-message-status audio-message-error audio-message-error-inline">{erro}</span>}
     </div>
   )
 }
