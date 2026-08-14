@@ -25,5 +25,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Validate PWA files
+        run: |
+          node --check public/sw.js
+          node --check public/pwa-boot.js
+          node -e "JSON.parse(require('fs').readFileSync('public/manifest.webmanifest', 'utf8'))"
+
       - name: Build
         run: npm run build
