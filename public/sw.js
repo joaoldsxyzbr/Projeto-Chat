@@ -1,8 +1,13 @@
-const CACHE_NAME = 'projeto-chat-v1'
+const CACHE_NAME = 'projeto-chat-v2'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
   '/chat-icon.svg',
+  '/icons/favicon-32.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
+  '/icons/apple-touch-icon.png',
 ]
 
 self.addEventListener('install', (event) => {
