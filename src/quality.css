@@ -40,6 +40,24 @@
   line-height: 1.5;
 }
 
+html[data-conexao='offline'] body::after {
+  content: 'Sem conexão';
+  position: fixed;
+  z-index: 9999;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 180, 100, 0.25);
+  border-radius: 999px;
+  background: rgba(34, 24, 18, 0.96);
+  color: #ffd0a3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  transform: translateX(-50%);
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
 @media (max-width: 740px) {
   .app-shell,
   .loading-screen,
