@@ -137,11 +137,18 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
       const fluxo = await navigator.mediaDevices.getUserMedia({ audio: true })
       fluxoRef.current = fluxo
 
+      // Preferimos MP4/AAC por compatibilidade entre iOS/Safari e Android/Chrome.
+      // O runtime escolhe apenas um formato que o aparelho realmente suporta.
       const candidatos = [
-        'audio/webm;codecs=opus',
-        'audio/ogg;codecs=opus',
+        'audio/mp4;codecs=mp4a.40.2',
+        'audio/mp4; codecs=mp4a.40.2',
+        'audio/mp4;codecs=opus',
+        'audio/mp4; codecs=opus',
         'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm; codecs=opus',
         'audio/webm',
+        'audio/ogg;codecs=opus',
       ]
       const mimeType = candidatos.find((tipo) => MediaRecorder.isTypeSupported?.(tipo))
       const gravador = mimeType ? new MediaRecorder(fluxo, { mimeType }) : new MediaRecorder(fluxo)
