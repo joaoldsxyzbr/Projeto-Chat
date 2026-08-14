@@ -199,7 +199,13 @@ function Chat({ usuario }) {
   const [carregando, setCarregando] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
+  const [usuariosOnline, setUsuariosOnline] = useState(() => new Set())
+  const [estaDigitando, setEstaDigitando] = useState(false)
   const fimMensagensRef = useRef(null)
+  const canalDigitacaoRef = useRef(null)
+  const digitacaoProntaRef = useRef(false)
+  const digitandoEnviadoRef = useRef(false)
+  const digitandoTimerRef = useRef(null)
 
   const carregarDados = useCallback(async (silencioso = false) => {
     if (!silencioso) setCarregando(true)
@@ -207,7 +213,7 @@ function Chat({ usuario }) {
     const [resPerfis, resConversas, resMensagens] = await Promise.all([
       supabase.from('perfis').select('id,nome,criado_em').order('nome'),
       supabase.from('conversas').select('id,usuario_1_id,usuario_2_id,criada_em').order('criada_em', { ascending: false }),
-      supabase.from('mensagens').select('id,conversa_id,remetente_id,conteudo,criada_em').order('criada_em'),
+      supabase.from('mensagens').select('id,conversa_id,remetente_id,conteudo,criada_em,lida_em').order('criada_em'),
     ])
 
     const falha = resPerfis.error || resConversas.error || resMensagens.error
@@ -233,7 +239,7 @@ function Chat({ usuario }) {
       .channel(`mensagens:${usuario.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'mensagens' },
+        { event: '*', schema: 'public', table: 'mensagens' },
         () => carregarDados(true),
       )
       .subscribe()
@@ -242,6 +248,52 @@ function Chat({ usuario }) {
       supabase.removeChannel(canal)
     }
   }, [carregarDados, usuario.id])
+
+  useEffect(() => {
+    let canal
+    let cancelado = false
+
+    async function iniciarPresenca() {
+      try {
+        await supabase.realtime.setAuth()
+        if (cancelado) return
+
+        canal = supabase
+          .channel('presenca:global', { config: { private: true } })
+          .on('presence', { event: 'sync' }, () => {
+            const estado = canal.presenceState()
+            const idsOnline = new Set(
+              Object.values(estado)
+                .flat()
+                .map((presenca) => presenca.usuario_id)
+                .filter(Boolean),
+            )
+            setUsuariosOnline(idsOnline)
+          })
+          .subscribe(async (status) => {
+            if (status !== 'SUBSCRIBED') return
+
+            await canal.track({
+              usuario_id: usuario.id,
+              online_em: new Date().toISOString(),
+            })
+          })
+      } catch (error) {
+        if (!cancelado) setErro(error.message || 'Não foi possível ativar a presença em tempo real.')
+      }
+    }
+
+    iniciarPresenca()
+
+    return () => {
+      cancelado = true
+      setUsuariosOnline(new Set())
+      if (canal) {
+        canal.untrack()
+        supabase.removeChannel(canal)
+      }
+    }
+  }, [usuario.id])
 
   const perfisPorId = useMemo(
     () => new Map(perfis.map((perfil) => [perfil.id, perfil])),
@@ -255,13 +307,18 @@ function Chat({ usuario }) {
         const perfil = perfisPorId.get(outroId)
         const mensagensDaConversa = mensagens.filter((mensagem) => mensagem.conversa_id === conversa.id)
         const ultima = mensagensDaConversa.at(-1)
+        const naoLidas = mensagensDaConversa.filter(
+          (mensagem) => mensagem.remetente_id !== usuario.id && !mensagem.lida_em,
+        ).length
 
         return {
           ...conversa,
+          outroId,
           perfil,
           nome: perfil?.nome || 'Usuário',
           ultimaMensagem: ultima?.conteudo || 'Comece a conversa',
           ultimaData: ultima?.criada_em || conversa.criada_em,
+          naoLidas,
         }
       })
       .sort((a, b) => new Date(b.ultimaData) - new Date(a.ultimaData))
@@ -288,12 +345,137 @@ function Chat({ usuario }) {
 
   const selecionada = conversasMontadas.find((conversa) => conversa.id === selecionadaId) || null
   const mensagensSelecionadas = mensagens.filter((mensagem) => mensagem.conversa_id === selecionadaId)
+  const temNaoLidasSelecionadas = mensagensSelecionadas.some(
+    (mensagem) => mensagem.remetente_id !== usuario.id && !mensagem.lida_em,
+  )
   const meuPerfil = perfisPorId.get(usuario.id)
   const meuNome = meuPerfil?.nome || usuario.user_metadata?.nome || usuario.email?.split('@')[0] || 'Usuário'
+  const outroOnline = Boolean(selecionada && usuariosOnline.has(selecionada.outroId))
 
   useEffect(() => {
     fimMensagensRef.current?.scrollIntoView({ block: 'end' })
   }, [mensagensSelecionadas.length, selecionadaId])
+
+  useEffect(() => {
+    let canal
+    let cancelado = false
+    let expiraDigitacao
+
+    setEstaDigitando(false)
+    canalDigitacaoRef.current = null
+    digitacaoProntaRef.current = false
+    digitandoEnviadoRef.current = false
+    clearTimeout(digitandoTimerRef.current)
+
+    if (!selecionadaId) return undefined
+
+    async function iniciarDigitacao() {
+      try {
+        await supabase.realtime.setAuth()
+        if (cancelado) return
+
+        canal = supabase
+          .channel(`conversa:${selecionadaId}:digitando`, { config: { private: true } })
+          .on('broadcast', { event: 'digitando' }, ({ payload }) => {
+            if (payload?.usuario_id === usuario.id) return
+
+            clearTimeout(expiraDigitacao)
+            const digitando = Boolean(payload?.digitando)
+            setEstaDigitando(digitando)
+
+            if (digitando) {
+              expiraDigitacao = setTimeout(() => setEstaDigitando(false), 2200)
+            }
+          })
+          .subscribe((status) => {
+            if (status !== 'SUBSCRIBED') return
+            canalDigitacaoRef.current = canal
+            digitacaoProntaRef.current = true
+          })
+      } catch (error) {
+        if (!cancelado) setErro(error.message || 'Não foi possível ativar o indicador de digitação.')
+      }
+    }
+
+    iniciarDigitacao()
+
+    return () => {
+      cancelado = true
+      clearTimeout(expiraDigitacao)
+      clearTimeout(digitandoTimerRef.current)
+
+      if (digitandoEnviadoRef.current && canal && digitacaoProntaRef.current) {
+        canal.send({
+          type: 'broadcast',
+          event: 'digitando',
+          payload: { usuario_id: usuario.id, digitando: false },
+        })
+      }
+
+      digitandoEnviadoRef.current = false
+      digitacaoProntaRef.current = false
+      canalDigitacaoRef.current = null
+      setEstaDigitando(false)
+      if (canal) supabase.removeChannel(canal)
+    }
+  }, [selecionadaId, usuario.id])
+
+  useEffect(() => {
+    if (!selecionadaId || !temNaoLidasSelecionadas) return undefined
+
+    async function marcarComoLidas() {
+      const conversaEstaVisivel = window.matchMedia('(min-width: 741px)').matches || chatAbertoMobile
+
+      if (document.visibilityState !== 'visible' || !conversaEstaVisivel) return
+
+      const { error } = await supabase
+        .from('mensagens')
+        .update({ lida_em: new Date().toISOString() })
+        .eq('conversa_id', selecionadaId)
+        .neq('remetente_id', usuario.id)
+        .is('lida_em', null)
+
+      if (error) setErro(error.message)
+    }
+
+    marcarComoLidas()
+    document.addEventListener('visibilitychange', marcarComoLidas)
+
+    return () => document.removeEventListener('visibilitychange', marcarComoLidas)
+  }, [chatAbertoMobile, selecionadaId, temNaoLidasSelecionadas, usuario.id])
+
+  function publicarDigitacao(digitando) {
+    const canal = canalDigitacaoRef.current
+    if (!canal || !digitacaoProntaRef.current) return false
+
+    canal.send({
+      type: 'broadcast',
+      event: 'digitando',
+      payload: { usuario_id: usuario.id, digitando },
+    })
+
+    return true
+  }
+
+  function alterarTexto(valor) {
+    setTexto(valor)
+    clearTimeout(digitandoTimerRef.current)
+
+    if (!valor.trim()) {
+      if (digitandoEnviadoRef.current) publicarDigitacao(false)
+      digitandoEnviadoRef.current = false
+      return
+    }
+
+    if (!digitandoEnviadoRef.current) {
+      digitandoEnviadoRef.current = publicarDigitacao(true)
+    }
+
+    digitandoTimerRef.current = setTimeout(() => {
+      if (digitandoEnviadoRef.current) publicarDigitacao(false)
+      digitandoEnviadoRef.current = false
+    }, 1200)
+  }
 
   function abrirConversa(id) {
     setSelecionadaId(id)
@@ -345,6 +527,9 @@ function Chat({ usuario }) {
 
     if (!conteudo || !selecionadaId || enviando) return
 
+    clearTimeout(digitandoTimerRef.current)
+    if (digitandoEnviadoRef.current) publicarDigitacao(false)
+    digitandoEnviadoRef.current = false
     setEnviando(true)
     setErro('')
 
@@ -401,7 +586,9 @@ function Chat({ usuario }) {
                 className={`conversation-item ${conversa.id === selecionadaId ? 'active' : ''}`}
                 onClick={() => abrirConversa(conversa.id)}
               >
-                <div className="avatar">{obterIniciais(conversa.nome)}</div>
+                <div className={`avatar ${usuariosOnline.has(conversa.outroId) ? 'presence-online' : ''}`}>
+                  {obterIniciais(conversa.nome)}
+                </div>
                 <div className="conversation-content">
                   <div className="conversation-topline">
                     <strong>{conversa.nome}</strong>
@@ -409,6 +596,7 @@ function Chat({ usuario }) {
                   </div>
                   <div className="conversation-preview">
                     <span>{conversa.ultimaMensagem}</span>
+                    {conversa.naoLidas > 0 && <b>{conversa.naoLidas}</b>}
                   </div>
                 </div>
               </button>
@@ -417,7 +605,7 @@ function Chat({ usuario }) {
         </div>
 
         <footer className="sidebar-footer">
-          <div className="avatar avatar-me">{obterIniciais(meuNome)}</div>
+          <div className="avatar avatar-me presence-online">{obterIniciais(meuNome)}</div>
           <div>
             <strong>{meuNome}</strong>
             <span>{usuario.email}</span>
@@ -431,10 +619,12 @@ function Chat({ usuario }) {
           <>
             <header className="chat-header">
               <button className="back-button" type="button" onClick={() => setChatAbertoMobile(false)} aria-label="Voltar">‹</button>
-              <div className="avatar">{obterIniciais(selecionada.nome)}</div>
+              <div className={`avatar ${outroOnline ? 'presence-online' : ''}`}>{obterIniciais(selecionada.nome)}</div>
               <div className="chat-person">
                 <strong>{selecionada.nome}</strong>
-                <span>Conversa direta</span>
+                <span className={estaDigitando ? 'typing-status' : ''}>
+                  {estaDigitando ? 'digitando...' : outroOnline ? 'online' : 'offline'}
+                </span>
               </div>
             </header>
 
@@ -453,6 +643,15 @@ function Chat({ usuario }) {
                         <p>{mensagem.conteudo}</p>
                         <div className="message-meta">
                           <time>{formatarHorario(mensagem.criada_em)}</time>
+                          {propria && (
+                            <span
+                              className={`read-receipt ${mensagem.lida_em ? 'read' : ''}`}
+                              title={mensagem.lida_em ? 'Lida' : 'Enviada'}
+                              aria-label={mensagem.lida_em ? 'Mensagem lida' : 'Mensagem enviada'}
+                            >
+                              {mensagem.lida_em ? '✓✓' : '✓'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -465,7 +664,7 @@ function Chat({ usuario }) {
             <form className="composer composer-simple" onSubmit={enviarMensagem}>
               <input
                 value={texto}
-                onChange={(event) => setTexto(event.target.value)}
+                onChange={(event) => alterarTexto(event.target.value)}
                 placeholder="Digite uma mensagem"
                 aria-label="Mensagem"
                 maxLength={4000}
