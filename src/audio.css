@@ -71,23 +71,107 @@
 }
 
 .audio-message {
-  min-width: min(280px, 68vw);
+  min-width: min(300px, 70vw);
   display: grid;
-  gap: 5px;
+  grid-template-columns: 38px minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 9px;
 }
 
-.audio-message audio {
-  width: 100%;
+.audio-native {
+  display: none;
+}
+
+.audio-play-button,
+.audio-speed-button {
   height: 36px;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition: background 140ms ease, transform 140ms ease, opacity 140ms ease;
+}
+
+.audio-play-button {
+  width: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  color: inherit;
+  font-size: 0.76rem;
+}
+
+.audio-speed-button {
+  min-width: 43px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 0.69rem;
+}
+
+.audio-play-button:hover:not(:disabled),
+.audio-speed-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.audio-play-button:active:not(:disabled),
+.audio-speed-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.audio-play-button:disabled,
+.audio-speed-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.audio-track {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.audio-track input[type='range'] {
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: currentColor;
+}
+
+.audio-track input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.audio-time {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: inherit;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
 }
 
 .audio-message-status {
   color: inherit;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
 }
 
 .audio-message-error {
   color: #ffb2b8;
+}
+
+.audio-message-error-inline {
+  grid-column: 1 / -1;
+}
+
+.message-row.mine .audio-play-button,
+.message-row.mine .audio-speed-button {
+  color: #fff;
 }
 
 @media (max-width: 740px) {
@@ -106,6 +190,19 @@
   }
 
   .audio-message {
-    min-width: min(250px, 74vw);
+    min-width: min(270px, 76vw);
+    grid-template-columns: 36px minmax(105px, 1fr) auto;
+    gap: 7px;
+  }
+
+  .audio-play-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .audio-speed-button {
+    min-width: 39px;
+    height: 34px;
+    padding-inline: 6px;
   }
 }
