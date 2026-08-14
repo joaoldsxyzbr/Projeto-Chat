@@ -1,0 +1,28 @@
+{
+  "id": "/",
+  "name": "Projeto Chat",
+  "short_name": "Chat",
+  "description": "Mensageiro privado em tempo real.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080a0d",
+  "theme_color": "#080a0d",
+  "categories": ["social", "communication"],
+  "icons": [
+    {
+      "src": "/chat-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/chat-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
