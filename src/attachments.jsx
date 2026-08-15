@@ -4,6 +4,7 @@ import { supabase } from './supabase'
 const BUCKET_ANEXOS = 'anexos-chat'
 const DURACAO_URL_ASSINADA_SEGUNDOS = 3600
 const MARGEM_CACHE_URL_MS = 2 * 60 * 1000
+const LIMITE_CACHE_URLS = 120
 const CAMPOS_MENSAGEM = 'id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos'
 export const LIMITE_ANEXO_BYTES = 20 * 1024 * 1024
 
@@ -17,11 +18,17 @@ async function obterUrlAnexo(caminho) {
     return existente.url
   }
 
+  if (existente) cacheUrlsAnexos.delete(caminho)
+
   const { data, error } = await supabase.storage
     .from(BUCKET_ANEXOS)
     .createSignedUrl(caminho, DURACAO_URL_ASSINADA_SEGUNDOS)
 
   if (error) throw error
+
+  if (cacheUrlsAnexos.size >= LIMITE_CACHE_URLS) {
+    cacheUrlsAnexos.delete(cacheUrlsAnexos.keys().next().value)
+  }
 
   cacheUrlsAnexos.set(caminho, {
     url: data.signedUrl,
