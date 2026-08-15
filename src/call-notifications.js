@@ -20,11 +20,20 @@ async function iniciar(id) {
 
   canal = supabase
     .channel(`notificacao-chamadas:${id}`)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chamadas' }, ({ new: chamada }) => {
-      if (!chamada?.id) return
-      if (chamada.estado === 'chamando' || chamada.estado === 'aceita') return
-      fecharNotificacao(chamada.id)
-    })
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chamadas',
+        select: ['id', 'estado'],
+      },
+      ({ new: chamada }) => {
+        if (!chamada?.id) return
+        if (chamada.estado === 'chamando' || chamada.estado === 'aceita') return
+        fecharNotificacao(chamada.id)
+      },
+    )
     .subscribe()
 }
 
