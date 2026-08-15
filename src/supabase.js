@@ -4,4 +4,11 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://kelduozimaksst
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_PhGA2Zjtbfio3uLb-KUSng_ymtQ9Z6j'
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey)
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+  realtime: {
+    worker: true,
+    heartbeatCallback: (status) => {
+      if (status === 'disconnected') supabase.realtime.connect()
+    },
+  },
+})
