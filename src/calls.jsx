@@ -232,7 +232,7 @@ export function useVoiceCalls({ usuarioId, onErro }) {
 
   const aoPronto = useCallback(async () => {
     const atual = chamadaRef.current
-    if (!atual || atual.chamador_id !== usuarioId || atual.estado !== 'aceita' || ofertaEnviadaRef.current) return
+    if (!atual || atual.chamador_id !== usuarioId || ofertaEnviadaRef.current) return
 
     try {
       const peer = await criarPeer()
@@ -265,7 +265,7 @@ export function useVoiceCalls({ usuarioId, onErro }) {
   const aoResposta = useCallback(async ({ payload }) => {
     const atual = chamadaRef.current
     const peer = peerRef.current
-    if (!atual || atual.chamador_id !== usuarioId || atual.estado !== 'aceita' || !peer || !payload?.sdp) return
+    if (!atual || atual.chamador_id !== usuarioId || !peer || !payload?.sdp) return
 
     try {
       await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp))
