@@ -1,3 +1,7 @@
+.composer-with-audio {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
 .attachment-button {
   width: 43px;
   height: 43px;
@@ -10,6 +14,8 @@
   cursor: pointer;
   font: inherit;
   font-size: 1.08rem;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: background 150ms ease, transform 150ms ease, opacity 150ms ease;
 }
 
@@ -58,6 +64,7 @@
   font-size: 0.82rem;
   font-weight: 700;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .attachment-menu button:hover {
@@ -123,6 +130,7 @@
   cursor: pointer;
   font: inherit;
   font-size: 1.1rem;
+  touch-action: manipulation;
 }
 
 .attachment-image-message {
@@ -200,6 +208,7 @@
   font: inherit;
   font-size: 1rem;
   font-weight: 800;
+  touch-action: manipulation;
 }
 
 .attachment-file-message > button:disabled {
@@ -213,6 +222,10 @@
 }
 
 @media (max-width: 740px) {
+  .composer-with-audio {
+    grid-template-columns: minmax(0, 1fr) 42px 42px 42px;
+  }
+
   .attachment-button {
     width: 42px;
     height: 42px;
