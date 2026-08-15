@@ -25,9 +25,14 @@
 }
 
 .read-receipt {
-  min-width: 14px;
+  min-width: 22px;
   text-align: right;
   letter-spacing: -0.12em;
+  color: inherit;
+}
+
+.read-receipt.delivered {
+  color: #aeb6c2;
 }
 
 .read-receipt.read {
