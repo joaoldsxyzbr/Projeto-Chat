@@ -2,7 +2,33 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
 const BUCKET_ANEXOS = 'anexos-chat'
+const DURACAO_URL_ASSINADA_SEGUNDOS = 3600
+const MARGEM_CACHE_URL_MS = 2 * 60 * 1000
 export const LIMITE_ANEXO_BYTES = 20 * 1024 * 1024
+
+const cacheUrlsAnexos = new Map()
+
+async function obterUrlAnexo(caminho) {
+  const agora = Date.now()
+  const existente = cacheUrlsAnexos.get(caminho)
+
+  if (existente && existente.expiraEm > agora + MARGEM_CACHE_URL_MS) {
+    return existente.url
+  }
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET_ANEXOS)
+    .createSignedUrl(caminho, DURACAO_URL_ASSINADA_SEGUNDOS)
+
+  if (error) throw error
+
+  cacheUrlsAnexos.set(caminho, {
+    url: data.signedUrl,
+    expiraEm: agora + DURACAO_URL_ASSINADA_SEGUNDOS * 1000,
+  })
+
+  return data.signedUrl
+}
 
 export function formatarTamanho(bytes = 0) {
   const valor = Number(bytes) || 0
@@ -34,17 +60,15 @@ export function AttachmentMessage({ mensagem }) {
     async function carregarImagem() {
       if (!imagem || !mensagem.arquivo_caminho) return
 
-      const { data, error } = await supabase.storage
-        .from(BUCKET_ANEXOS)
-        .createSignedUrl(mensagem.arquivo_caminho, 3600)
+      setErro('')
+      setImagemFalhou(false)
 
-      if (!ativo) return
-      if (error) {
-        setErro('Não foi possível carregar a foto.')
-        return
+      try {
+        const signedUrl = await obterUrlAnexo(mensagem.arquivo_caminho)
+        if (ativo) setUrl(signedUrl)
+      } catch {
+        if (ativo) setErro('Não foi possível carregar a foto.')
       }
-
-      setUrl(data.signedUrl)
     }
 
     carregarImagem()
@@ -89,6 +113,7 @@ export function AttachmentMessage({ mensagem }) {
             src={url}
             alt={mensagem.arquivo_nome || 'Foto enviada'}
             loading="lazy"
+            decoding="async"
             onError={() => setImagemFalhou(true)}
           />
         </a>
