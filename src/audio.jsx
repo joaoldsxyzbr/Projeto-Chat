@@ -6,8 +6,33 @@ const LIMITE_MP4_SEGUNDOS = 600
 const LIMITE_WAV_SEGUNDOS = 300
 const TAXA_WAV = 16000
 const VELOCIDADES = [1, 1.5, 2]
+const DURACAO_URL_ASSINADA_SEGUNDOS = 21600
+const MARGEM_CACHE_URL_MS = 5 * 60 * 1000
 
 let audioAtivo = null
+const cacheUrlsAudio = new Map()
+
+async function obterUrlAudio(caminho) {
+  const agora = Date.now()
+  const existente = cacheUrlsAudio.get(caminho)
+
+  if (existente && existente.expiraEm > agora + MARGEM_CACHE_URL_MS) {
+    return existente.url
+  }
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET_AUDIO)
+    .createSignedUrl(caminho, DURACAO_URL_ASSINADA_SEGUNDOS)
+
+  if (error) throw error
+
+  cacheUrlsAudio.set(caminho, {
+    url: data.signedUrl,
+    expiraEm: agora + DURACAO_URL_ASSINADA_SEGUNDOS * 1000,
+  })
+
+  return data.signedUrl
+}
 
 function extensaoParaMime(tipo = '') {
   if (tipo.includes('mp4')) return 'm4a'
@@ -121,18 +146,12 @@ export function AudioMessage({ caminho, duracao }) {
       setTempoAtual(0)
       setDuracaoReal(Number(duracao) || 0)
 
-      const { data, error } = await supabase.storage
-        .from(BUCKET_AUDIO)
-        .createSignedUrl(caminho, 21600)
-
-      if (!ativo) return
-
-      if (error) {
-        setErro('Não foi possível carregar o áudio.')
-        return
+      try {
+        const signedUrl = await obterUrlAudio(caminho)
+        if (ativo) setUrl(signedUrl)
+      } catch {
+        if (ativo) setErro('Não foi possível carregar o áudio.')
       }
-
-      setUrl(data.signedUrl)
     }
 
     carregar()
@@ -208,7 +227,7 @@ export function AudioMessage({ caminho, duracao }) {
       <audio
         ref={audioRef}
         className="audio-native"
-        preload="metadata"
+        preload="none"
         src={url || undefined}
         onLoadedMetadata={atualizarDuracao}
         onDurationChange={atualizarDuracao}
