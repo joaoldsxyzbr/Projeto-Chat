@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { AudioMessage, useAudioRecorder } from './audio'
+import { AttachmentDraft, AttachmentMessage, useAttachmentUpload } from './attachments'
 
 function obterIniciais(nome = '') {
   return nome
@@ -26,6 +27,14 @@ function formatarDataLista(data) {
   if (mesmoDia) return formatarHorario(data)
 
   return valor.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function resumoMensagem(mensagem) {
+  if (!mensagem) return 'Comece a conversa'
+  if (mensagem.tipo === 'audio') return '🎙️ Mensagem de áudio'
+  if (mensagem.tipo === 'imagem') return '📷 Foto'
+  if (mensagem.tipo === 'arquivo') return `📎 ${mensagem.arquivo_nome || 'Arquivo'}`
+  return mensagem.conteudo || 'Comece a conversa'
 }
 
 function Icon({ children, label, onClick, disabled = false }) {
@@ -197,6 +206,7 @@ function Chat({ usuario }) {
   const [texto, setTexto] = useState('')
   const [chatAbertoMobile, setChatAbertoMobile] = useState(false)
   const [novaConversaAberta, setNovaConversaAberta] = useState(false)
+  const [menuAnexoAberto, setMenuAnexoAberto] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
@@ -204,6 +214,8 @@ function Chat({ usuario }) {
   const [estaDigitando, setEstaDigitando] = useState(false)
   const fimMensagensRef = useRef(null)
   const mensagensAreaRef = useRef(null)
+  const fotoInputRef = useRef(null)
+  const arquivoInputRef = useRef(null)
   const seguirFimRef = useRef(true)
   const conversaScrollRef = useRef(null)
   const cargaSequenciaRef = useRef(0)
@@ -223,7 +235,7 @@ function Chat({ usuario }) {
       supabase.from('conversas').select('id,usuario_1_id,usuario_2_id,criada_em').order('criada_em', { ascending: false }),
       supabase
         .from('mensagens')
-        .select('id,conversa_id,remetente_id,conteudo,criada_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,duracao_segundos')
+        .select('id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos')
         .order('criada_em'),
     ])
 
@@ -349,7 +361,7 @@ function Chat({ usuario }) {
           outroId,
           perfil,
           nome: perfil?.nome || 'Usuário',
-          ultimaMensagem: ultima?.tipo === 'audio' ? '🎙️ Mensagem de áudio' : ultima?.conteudo || 'Comece a conversa',
+          ultimaMensagem: resumoMensagem(ultima),
           ultimaData: ultima?.criada_em || conversa.criada_em,
           naoLidas,
         }
@@ -437,6 +449,19 @@ function Chat({ usuario }) {
     onErro: (mensagem) => setErro(mensagem),
   })
 
+  const {
+    anexo,
+    enviandoAnexo,
+    selecionarAnexo,
+    cancelarAnexo,
+    enviarAnexo,
+  } = useAttachmentUpload({
+    conversaId: selecionadaId,
+    usuarioId: usuario.id,
+    onEnviado: () => carregarDados(true),
+    onErro: (mensagem) => setErro(mensagem),
+  })
+
   useEffect(() => {
     const mudouConversa = conversaScrollRef.current !== selecionadaId
 
@@ -486,7 +511,7 @@ function Chat({ usuario }) {
 
     navigator.serviceWorker.addEventListener('message', aoReceberMensagem)
     return () => navigator.serviceWorker.removeEventListener('message', aoReceberMensagem)
-  }, [conversasMontadas, gravando])
+  }, [conversasMontadas, gravando, anexo])
 
   useEffect(() => {
     let canal
@@ -628,8 +653,14 @@ function Chat({ usuario }) {
     }
   }
 
-  function abrirConversa(id) {
+  function limparComposicao() {
     if (gravando) cancelarGravacao()
+    if (anexo) cancelarAnexo()
+    setMenuAnexoAberto(false)
+  }
+
+  function abrirConversa(id) {
+    limparComposicao()
     seguirFimRef.current = true
     setSelecionadaId(id)
     setChatAbertoMobile(true)
@@ -637,7 +668,7 @@ function Chat({ usuario }) {
   }
 
   function voltarConversas() {
-    if (gravando) cancelarGravacao()
+    limparComposicao()
     setChatAbertoMobile(false)
 
     if (window.matchMedia('(max-width: 740px)').matches && window.history.state?.projetoChatConversa) {
@@ -651,6 +682,17 @@ function Chat({ usuario }) {
 
     const distanciaDoFim = area.scrollHeight - area.scrollTop - area.clientHeight
     seguirFimRef.current = distanciaDoFim < 120
+  }
+
+  function escolherAnexo(event, tipo) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (selecionarAnexo(file, tipo)) {
+      setMenuAnexoAberto(false)
+      setErro('')
+    }
   }
 
   async function criarConversa(outroUsuarioId) {
@@ -693,9 +735,17 @@ function Chat({ usuario }) {
 
   async function enviarMensagem(event) {
     event.preventDefault()
-    const conteudo = texto.trim()
 
-    if (!conteudo || !selecionadaId || enviando || enviandoAudio || gravando) return
+    if (anexo) {
+      if (!selecionadaId || enviando || enviandoAudio || enviandoAnexo || gravando) return
+      seguirFimRef.current = true
+      setErro('')
+      await enviarAnexo()
+      return
+    }
+
+    const conteudo = texto.trim()
+    if (!conteudo || !selecionadaId || enviando || enviandoAudio || enviandoAnexo || gravando) return
 
     clearTimeout(digitandoTimerRef.current)
     if (digitandoEnviadoRef.current) publicarDigitacao(false)
@@ -723,13 +773,15 @@ function Chat({ usuario }) {
   }
 
   async function sair() {
-    if (gravando) cancelarGravacao()
+    limparComposicao()
     await supabase.auth.signOut()
   }
 
   if (carregando) {
     return <div className="loading-screen">Carregando conversas...</div>
   }
+
+  const enviandoAlgo = enviando || enviandoAudio || enviandoAnexo
 
   return (
     <main className={`app-shell ${chatAbertoMobile ? 'chat-open' : ''}`}>
@@ -811,12 +863,18 @@ function Chat({ usuario }) {
 
                 {mensagensSelecionadas.map((mensagem) => {
                   const propria = mensagem.remetente_id === usuario.id
+                  const lida = Boolean(mensagem.lida_em)
+                  const entregue = lida || Boolean(mensagem.entregue_em)
+                  const recibo = lida ? '✓✓✓' : entregue ? '✓✓' : '✓'
+                  const reciboRotulo = lida ? 'Mensagem lida' : entregue ? 'Mensagem entregue' : 'Mensagem enviada'
 
                   return (
                     <div key={mensagem.id} className={`message-row ${propria ? 'mine' : ''}`}>
                       <div className="message-bubble">
                         {mensagem.tipo === 'audio' ? (
                           <AudioMessage caminho={mensagem.arquivo_caminho} duracao={mensagem.duracao_segundos} />
+                        ) : mensagem.tipo === 'imagem' || mensagem.tipo === 'arquivo' ? (
+                          <AttachmentMessage mensagem={mensagem} />
                         ) : (
                           <p>{mensagem.conteudo}</p>
                         )}
@@ -824,11 +882,11 @@ function Chat({ usuario }) {
                           <time>{formatarHorario(mensagem.criada_em)}</time>
                           {propria && (
                             <span
-                              className={`read-receipt ${mensagem.lida_em ? 'read' : ''}`}
-                              title={mensagem.lida_em ? 'Lida' : 'Enviada'}
-                              aria-label={mensagem.lida_em ? 'Mensagem lida' : 'Mensagem enviada'}
+                              className={`read-receipt ${lida ? 'read' : entregue ? 'delivered' : ''}`}
+                              title={lida ? 'Lida' : entregue ? 'Entregue' : 'Enviada'}
+                              aria-label={reciboRotulo}
                             >
-                              {mensagem.lida_em ? '✓✓' : '✓'}
+                              {recibo}
                             </span>
                           )}
                         </div>
@@ -840,12 +898,14 @@ function Chat({ usuario }) {
               </div>
             </div>
 
-            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem} aria-busy={enviando || enviandoAudio}>
+            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem} aria-busy={enviandoAlgo}>
               {gravando ? (
                 <div className="audio-recording-status" aria-live="polite">
                   <span className="audio-recording-dot" aria-hidden="true" />
                   <span>Gravando {tempoFormatado}</span>
                 </div>
+              ) : anexo ? (
+                <AttachmentDraft anexo={anexo} onCancel={cancelarAnexo} />
               ) : (
                 <textarea
                   value={texto}
@@ -855,8 +915,46 @@ function Chat({ usuario }) {
                   aria-label="Mensagem"
                   rows="1"
                   maxLength={4000}
-                  disabled={enviandoAudio}
+                  disabled={enviandoAudio || enviandoAnexo}
                 />
+              )}
+
+              {!gravando && (
+                <div className="attachment-menu-wrap">
+                  <button
+                    className="attachment-button"
+                    type="button"
+                    onClick={() => setMenuAnexoAberto((aberto) => !aberto)}
+                    aria-label="Anexar foto ou arquivo"
+                    aria-expanded={menuAnexoAberto}
+                    disabled={enviandoAlgo || Boolean(texto.trim()) || Boolean(anexo)}
+                  >
+                    📎
+                  </button>
+                  {menuAnexoAberto && (
+                    <div className="attachment-menu" role="menu">
+                      <button type="button" role="menuitem" onClick={() => fotoInputRef.current?.click()}>
+                        <span aria-hidden="true">🖼️</span> Foto
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => arquivoInputRef.current?.click()}>
+                        <span aria-hidden="true">📄</span> Arquivo
+                      </button>
+                    </div>
+                  )}
+                  <input
+                    ref={fotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(event) => escolherAnexo(event, 'imagem')}
+                  />
+                  <input
+                    ref={arquivoInputRef}
+                    type="file"
+                    hidden
+                    onChange={(event) => escolherAnexo(event, 'arquivo')}
+                  />
+                </div>
               )}
 
               {gravando ? (
@@ -865,22 +963,25 @@ function Chat({ usuario }) {
                 <button
                   className="audio-record-button"
                   type="button"
-                  onClick={iniciarGravacao}
+                  onClick={() => {
+                    setMenuAnexoAberto(false)
+                    iniciarGravacao()
+                  }}
                   aria-label="Gravar áudio"
-                  disabled={enviando || enviandoAudio || Boolean(texto.trim())}
+                  disabled={enviandoAlgo || Boolean(texto.trim()) || Boolean(anexo)}
                 >
                   🎙️
                 </button>
               )}
 
               <button
-                className={`send-button ${enviando || enviandoAudio ? 'is-sending' : ''}`}
+                className={`send-button ${enviandoAlgo ? 'is-sending' : ''}`}
                 type={gravando ? 'button' : 'submit'}
                 onClick={gravando ? enviarGravacao : undefined}
-                aria-label={gravando ? 'Enviar áudio' : 'Enviar mensagem'}
-                disabled={gravando ? false : enviando || enviandoAudio || !texto.trim()}
+                aria-label={gravando ? 'Enviar áudio' : anexo ? 'Enviar anexo' : 'Enviar mensagem'}
+                disabled={gravando ? false : enviandoAlgo || (!anexo && !texto.trim())}
               >
-                {enviando || enviandoAudio ? '…' : '➤'}
+                {enviandoAlgo ? '…' : '➤'}
               </button>
             </form>
           </>
