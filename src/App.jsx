@@ -5,6 +5,7 @@ import { AttachmentDraft, AttachmentMessage, useAttachmentUpload } from './attac
 import { CallOverlay, useVoiceCalls } from './calls'
 
 const LISTA_VAZIA = []
+const CAMPOS_MENSAGEM = 'id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos'
 
 function obterIniciais(nome = '') {
   return nome
@@ -256,7 +257,6 @@ function Chat({ usuario }) {
   const seguirFimRef = useRef(true)
   const conversaScrollRef = useRef(null)
   const cargaSequenciaRef = useRef(0)
-  const realtimeTimerRef = useRef(null)
   const deepLinkAplicadoRef = useRef(false)
   const canalDigitacaoRef = useRef(null)
   const digitacaoProntaRef = useRef(false)
@@ -273,7 +273,7 @@ function Chat({ usuario }) {
       supabase.from('conversas').select('id,usuario_1_id,usuario_2_id,criada_em').order('criada_em', { ascending: false }),
       supabase
         .from('mensagens')
-        .select('id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos')
+        .select(CAMPOS_MENSAGEM)
         .order('criada_em'),
     ])
 
@@ -293,10 +293,36 @@ function Chat({ usuario }) {
     setCarregando(false)
   }, [])
 
-  const agendarAtualizacao = useCallback(() => {
-    clearTimeout(realtimeTimerRef.current)
-    realtimeTimerRef.current = setTimeout(() => carregarDados(true), 90)
-  }, [carregarDados])
+  const atualizarMensagemLocal = useCallback((mensagem) => {
+    if (!mensagem?.id) return
+
+    setMensagens((atuais) => {
+      const indice = atuais.findIndex((item) => item.id === mensagem.id)
+
+      if (indice >= 0) {
+        const atual = atuais[indice]
+        const atualizada = { ...atual, ...mensagem }
+
+        if (Object.keys(atualizada).every((chave) => atualizada[chave] === atual[chave])) return atuais
+
+        const proximas = [...atuais]
+        proximas[indice] = atualizada
+        return proximas
+      }
+
+      const ultima = atuais.at(-1)
+      if (!ultima?.criada_em || !mensagem.criada_em || mensagem.criada_em >= ultima.criada_em) {
+        return [...atuais, mensagem]
+      }
+
+      return [...atuais, mensagem].sort((a, b) => String(a.criada_em).localeCompare(String(b.criada_em)))
+    })
+  }, [])
+
+  const removerMensagemLocal = useCallback((id) => {
+    if (!id) return
+    setMensagens((atuais) => atuais.filter((mensagem) => mensagem.id !== id))
+  }, [])
 
   useEffect(() => {
     carregarDados()
@@ -318,19 +344,24 @@ function Chat({ usuario }) {
 
   useEffect(() => {
     const canal = supabase
-      .channel(`mensagens:${usuario.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'mensagens' },
-        agendarAtualizacao,
-      )
+      .channel(`chat:${usuario.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens' }, (evento) => {
+        if (evento.eventType === 'DELETE') {
+          removerMensagemLocal(evento.old?.id)
+          return
+        }
+
+        atualizarMensagemLocal(evento.new)
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, () => {
+        carregarDados(true)
+      })
       .subscribe()
 
     return () => {
-      clearTimeout(realtimeTimerRef.current)
       supabase.removeChannel(canal)
     }
-  }, [agendarAtualizacao, usuario.id])
+  }, [atualizarMensagemLocal, carregarDados, removerMensagemLocal, usuario.id])
 
   useEffect(() => {
     let canal
@@ -522,7 +553,7 @@ function Chat({ usuario }) {
   } = useAttachmentUpload({
     conversaId: selecionadaId,
     usuarioId: usuario.id,
-    onEnviado: () => carregarDados(true),
+    onEnviado: atualizarMensagemLocal,
     onErro: setErro,
   })
 
@@ -852,16 +883,20 @@ function Chat({ usuario }) {
     setErro('')
 
     try {
-      const { error } = await supabase.from('mensagens').insert({
-        conversa_id: selecionadaId,
-        remetente_id: usuario.id,
-        conteudo,
-      })
+      const { data: mensagem, error } = await supabase
+        .from('mensagens')
+        .insert({
+          conversa_id: selecionadaId,
+          remetente_id: usuario.id,
+          conteudo,
+        })
+        .select(CAMPOS_MENSAGEM)
+        .single()
 
       if (error) throw error
 
+      atualizarMensagemLocal(mensagem)
       setTexto('')
-      await carregarDados(true)
     } catch (error) {
       setErro(error.message || 'Não foi possível enviar a mensagem.')
     } finally {
