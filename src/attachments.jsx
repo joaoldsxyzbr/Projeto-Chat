@@ -56,7 +56,7 @@ function nomeSeguro(nome = 'arquivo') {
 }
 
 export function AttachmentMessage({ mensagem }) {
-  const imagem = mensagem.tipo === 'imagem'
+  const imagem = mensagem.tipo === 'imagem' || mensagem.arquivo_tipo?.toLowerCase().startsWith('image/')
   const [url, setUrl] = useState('')
   const [erro, setErro] = useState('')
   const [baixando, setBaixando] = useState(false)
@@ -68,6 +68,7 @@ export function AttachmentMessage({ mensagem }) {
     async function carregarImagem() {
       if (!imagem || !mensagem.arquivo_caminho) return
 
+      setUrl('')
       setErro('')
       setImagemFalhou(false)
 
@@ -113,7 +114,15 @@ export function AttachmentMessage({ mensagem }) {
     }
   }
 
-  if (imagem && url && !imagemFalhou) {
+  if (imagem && !erro && !imagemFalhou) {
+    if (!url) {
+      return (
+        <div className="attachment-image-loading" role="status" aria-label="Carregando foto">
+          <span aria-hidden="true">🖼️</span>
+        </div>
+      )
+    }
+
     return (
       <div className="attachment-image-message">
         <a href={url} target="_blank" rel="noreferrer" aria-label="Abrir foto">
@@ -125,18 +134,27 @@ export function AttachmentMessage({ mensagem }) {
             onError={() => setImagemFalhou(true)}
           />
         </a>
-        {mensagem.arquivo_tamanho ? (
-          <span className="attachment-caption">{formatarTamanho(mensagem.arquivo_tamanho)}</span>
-        ) : null}
+      </div>
+    )
+  }
+
+  if (imagem) {
+    return (
+      <div className="attachment-image-error">
+        <span aria-hidden="true">🖼️</span>
+        <span>{erro || 'Não foi possível abrir a foto.'}</span>
+        <button type="button" onClick={baixar} disabled={baixando}>
+          {baixando ? '…' : 'Baixar'}
+        </button>
       </div>
     )
   }
 
   return (
     <div className="attachment-file-message">
-      <div className="attachment-file-icon" aria-hidden="true">{imagem ? '🖼️' : '📄'}</div>
+      <div className="attachment-file-icon" aria-hidden="true">📄</div>
       <div className="attachment-file-info">
-        <strong>{mensagem.arquivo_nome || (imagem ? 'Foto' : 'Arquivo')}</strong>
+        <strong>{mensagem.arquivo_nome || 'Arquivo'}</strong>
         <span>{mensagem.arquivo_tamanho ? formatarTamanho(mensagem.arquivo_tamanho) : 'Anexo'}</span>
       </div>
       <button type="button" onClick={baixar} disabled={baixando} aria-label="Baixar arquivo">
@@ -249,6 +267,10 @@ export function useAttachmentUpload({ conversaId, usuarioId, onEnviado, onErro }
       if (erroMensagem) {
         await supabase.storage.from(BUCKET_ANEXOS).remove([caminho]).catch(() => {})
         throw erroMensagem
+      }
+
+      if (tipo === 'imagem') {
+        await obterUrlAnexo(caminho).catch(() => {})
       }
 
       cancelarAnexo()
