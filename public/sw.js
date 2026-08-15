@@ -148,7 +148,11 @@ self.addEventListener('notificationclick', (event) => {
         janela.postMessage({ type: 'ABRIR_CONVERSA', conversa_id: conversaId })
       }
       if (chamadaId) {
-        janela.postMessage({ type: 'SINCRONIZAR_CHAMADA', chamada_id: chamadaId })
+        janela.postMessage({
+          type: 'SINCRONIZAR_CHAMADA',
+          chamada_id: chamadaId,
+          conversa_id: conversaId,
+        })
       }
 
       await janela.focus()
