@@ -50,6 +50,35 @@ export const MessageList = memo(function MessageList({
   seguirFimRef,
   scrollFrameRef,
 }) {
+  useEffect(() => {
+    const area = mensagensAreaRef.current
+    if (!area) return undefined
+
+    const coluna = area.querySelector('.messages-column')
+    if (!coluna) return undefined
+
+    const irAoFim = () => {
+      if (!seguirFimRef.current) return
+      area.scrollTop = area.scrollHeight
+    }
+
+    irAoFim()
+    const frame = requestAnimationFrame(irAoFim)
+
+    if (!window.ResizeObserver) {
+      return () => cancelAnimationFrame(frame)
+    }
+
+    const observer = new ResizeObserver(irAoFim)
+    observer.observe(area)
+    observer.observe(coluna)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [mensagensAreaRef, seguirFimRef])
+
   function acompanharScroll() {
     if (scrollFrameRef.current !== null) return
 
