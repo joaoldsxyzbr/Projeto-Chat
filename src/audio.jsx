@@ -8,6 +8,7 @@ const TAXA_WAV = 16000
 const VELOCIDADES = [1, 1.5, 2]
 const DURACAO_URL_ASSINADA_SEGUNDOS = 21600
 const MARGEM_CACHE_URL_MS = 5 * 60 * 1000
+const LIMITE_CACHE_URLS_AUDIO = 120
 
 let audioAtivo = null
 const cacheUrlsAudio = new Map()
@@ -20,11 +21,17 @@ async function obterUrlAudio(caminho) {
     return existente.url
   }
 
+  if (existente) cacheUrlsAudio.delete(caminho)
+
   const { data, error } = await supabase.storage
     .from(BUCKET_AUDIO)
     .createSignedUrl(caminho, DURACAO_URL_ASSINADA_SEGUNDOS)
 
   if (error) throw error
+
+  if (cacheUrlsAudio.size >= LIMITE_CACHE_URLS_AUDIO) {
+    cacheUrlsAudio.delete(cacheUrlsAudio.keys().next().value)
+  }
 
   cacheUrlsAudio.set(caminho, {
     url: data.signedUrl,
