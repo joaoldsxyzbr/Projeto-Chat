@@ -4,6 +4,51 @@ import { supabase } from './supabase'
 const ICE_FALLBACK = [{ urls: ['stun:stun.cloudflare.com:3478'] }]
 const TEMPO_CHAMANDO_MS = 30_000
 const TEMPO_DESCONECTADO_MS = 10_000
+const TEMPO_CACHE_ICE_MS = 5 * 60 * 60 * 1000
+
+let cacheIce = null
+let promessaIce = null
+
+async function obterConfiguracaoIce() {
+  const agora = Date.now()
+
+  if (cacheIce?.expiraEm > agora) {
+    return { iceServers: cacheIce.iceServers, relay: cacheIce.relay }
+  }
+
+  if (promessaIce) return promessaIce
+
+  promessaIce = (async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('obter-ice', { body: {} })
+      if (!error && Array.isArray(data?.iceServers) && data.iceServers.length) {
+        const configuracao = {
+          iceServers: data.iceServers,
+          relay: Boolean(data.relay),
+        }
+
+        if (configuracao.relay) {
+          cacheIce = {
+            ...configuracao,
+            expiraEm: Date.now() + TEMPO_CACHE_ICE_MS,
+          }
+        }
+
+        return configuracao
+      }
+    } catch {
+      // Usa STUN público como fallback quando TURN estiver temporariamente indisponível.
+    }
+
+    return { iceServers: ICE_FALLBACK, relay: false }
+  })()
+
+  try {
+    return await promessaIce
+  } finally {
+    promessaIce = null
+  }
+}
 
 function formatarDuracao(segundos = 0) {
   const total = Math.max(0, Math.floor(segundos))
@@ -157,18 +202,8 @@ export function useVoiceCalls({ usuarioId, onErro }) {
     if (peerRef.current) return peerRef.current
     if (!streamLocalRef.current) throw new Error('O microfone ainda não está disponível.')
 
-    let iceServers = ICE_FALLBACK
-    try {
-      const { data, error } = await supabase.functions.invoke('obter-ice', { body: {} })
-      if (!error && Array.isArray(data?.iceServers) && data.iceServers.length) {
-        iceServers = data.iceServers
-        setRelayDisponivel(Boolean(data.relay))
-      } else {
-        setRelayDisponivel(false)
-      }
-    } catch {
-      setRelayDisponivel(false)
-    }
+    const { iceServers, relay } = await obterConfiguracaoIce()
+    setRelayDisponivel(relay)
 
     const peer = new RTCPeerConnection({ iceServers })
     peerRef.current = peer
