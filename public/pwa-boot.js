@@ -5,11 +5,11 @@ if ('serviceWorker' in navigator) {
         updateViaCache: 'none',
       })
 
-      await registration.update()
-
-      // Mantém o PWA atualizado sem recarregar uma conversa em andamento.
+      // Mantém o PWA atualizado sem consultar o service worker em segundo plano.
       window.setInterval(() => {
-        registration.update().catch(() => {})
+        if (document.visibilityState === 'visible') {
+          registration.update().catch(() => {})
+        }
       }, 60 * 60 * 1000)
     } catch (error) {
       console.error('Falha ao registrar o service worker:', error)
