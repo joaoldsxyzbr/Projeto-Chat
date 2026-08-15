@@ -1,0 +1,232 @@
+.attachment-button {
+  width: 43px;
+  height: 43px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  background: #141920;
+  color: #c8ced8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.08rem;
+  transition: background 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+
+.attachment-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.attachment-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.attachment-menu-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.attachment-menu {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 10px);
+  min-width: 150px;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(14, 17, 22, 0.98);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+}
+
+.attachment-menu button {
+  min-height: 40px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #e7e9ee;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.attachment-menu button:hover {
+  background: #171c24;
+}
+
+.attachment-draft {
+  min-width: 0;
+  min-height: 46px;
+  padding: 5px 7px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #252c36;
+  border-radius: 15px;
+  background: #11151b;
+}
+
+.attachment-draft img,
+.attachment-draft-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+
+.attachment-draft img {
+  object-fit: cover;
+}
+
+.attachment-draft-icon {
+  display: grid;
+  place-items: center;
+  background: #171d25;
+}
+
+.attachment-draft-info {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attachment-draft-info strong {
+  overflow: hidden;
+  color: #eef0f4;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-draft-info span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.attachment-draft > button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: #21171a;
+  color: #ffb2b8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.attachment-image-message {
+  width: min(320px, 68vw);
+  display: grid;
+  gap: 5px;
+}
+
+.attachment-image-message a {
+  display: block;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.attachment-image-message img {
+  width: 100%;
+  max-height: 360px;
+  display: block;
+  object-fit: cover;
+}
+
+.attachment-caption {
+  font-size: 0.69rem;
+  opacity: 0.72;
+}
+
+.attachment-file-message {
+  position: relative;
+  min-width: min(300px, 68vw);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 9px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.attachment-file-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.attachment-file-info {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attachment-file-info strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file-info span {
+  font-size: 0.69rem;
+  opacity: 0.72;
+}
+
+.attachment-file-message > button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.16);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.attachment-file-message > button:disabled {
+  opacity: 0.55;
+}
+
+.attachment-error {
+  grid-column: 1 / -1;
+  color: #ffb2b8;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 740px) {
+  .attachment-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .attachment-menu {
+    right: -42px;
+  }
+
+  .attachment-image-message {
+    width: min(280px, 76vw);
+  }
+
+  .attachment-file-message {
+    min-width: min(260px, 76vw);
+  }
+}
