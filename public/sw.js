@@ -151,19 +151,20 @@ self.addEventListener('notificationclick', (event) => {
 
     if (janelas.length > 0) {
       const janela = janelas.find((item) => item.visibilityState === 'visible') || janelas[0]
+      const janelaFocada = await janela.focus().catch(() => null)
+      const alvo = janelaFocada || janela
 
       if (conversaId) {
-        janela.postMessage({ type: 'ABRIR_CONVERSA', conversa_id: conversaId })
+        alvo.postMessage({ type: 'ABRIR_CONVERSA', conversa_id: conversaId })
       }
       if (chamadaId) {
-        janela.postMessage({
+        alvo.postMessage({
           type: 'SINCRONIZAR_CHAMADA',
           chamada_id: chamadaId,
           conversa_id: conversaId,
         })
       }
 
-      await janela.focus()
       return
     }
 
