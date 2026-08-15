@@ -1,0 +1,25 @@
+@media (min-width: 741px) {
+  .chat-header {
+    padding-inline: max(18px, calc((100% - 820px) / 2));
+  }
+
+  .messages-area {
+    padding-inline: max(24px, calc((100% - 720px) / 2));
+  }
+
+  .messages-column {
+    width: 100%;
+    max-width: 720px;
+  }
+
+  .message-bubble {
+    max-width: min(80%, 520px);
+  }
+
+  .composer {
+    width: min(820px, calc(100% - 40px));
+    margin-inline: auto;
+    padding-inline: 0;
+    border-top: 0;
+  }
+}
