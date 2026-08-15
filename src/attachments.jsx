@@ -4,6 +4,7 @@ import { supabase } from './supabase'
 const BUCKET_ANEXOS = 'anexos-chat'
 const DURACAO_URL_ASSINADA_SEGUNDOS = 3600
 const MARGEM_CACHE_URL_MS = 2 * 60 * 1000
+const CAMPOS_MENSAGEM = 'id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos'
 export const LIMITE_ANEXO_BYTES = 20 * 1024 * 1024
 
 const cacheUrlsAnexos = new Map()
@@ -227,7 +228,7 @@ export function useAttachmentUpload({ conversaId, usuarioId, onEnviado, onErro }
 
       if (erroUpload) throw erroUpload
 
-      const { error: erroMensagem } = await supabase.from('mensagens').insert({
+      const { data: mensagem, error: erroMensagem } = await supabase.from('mensagens').insert({
         conversa_id: conversaId,
         remetente_id: usuarioId,
         conteudo: tipo === 'imagem' ? 'Foto' : `Arquivo: ${nome}`,
@@ -236,7 +237,7 @@ export function useAttachmentUpload({ conversaId, usuarioId, onEnviado, onErro }
         arquivo_tipo: mime,
         arquivo_nome: nome,
         arquivo_tamanho: file.size,
-      })
+      }).select(CAMPOS_MENSAGEM).single()
 
       if (erroMensagem) {
         await supabase.storage.from(BUCKET_ANEXOS).remove([caminho]).catch(() => {})
@@ -244,7 +245,7 @@ export function useAttachmentUpload({ conversaId, usuarioId, onEnviado, onErro }
       }
 
       cancelarAnexo()
-      await onEnviado?.()
+      await onEnviado?.(mensagem)
       return true
     } catch (error) {
       onErro?.(error.message || 'Não foi possível enviar o anexo.')
