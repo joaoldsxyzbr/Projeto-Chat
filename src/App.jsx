@@ -322,23 +322,43 @@ function Chat({ usuario }) {
   }, [carregarDados])
 
   useEffect(() => {
-    const canal = supabase
-      .channel(`chat:${usuario.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens' }, (evento) => {
-        if (evento.eventType === 'DELETE') {
-          removerMensagemLocal(evento.old?.id)
-          return
-        }
+    let canal
+    let cancelado = false
 
-        atualizarMensagemLocal(evento.new)
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, () => {
-        carregarDados(true)
-      })
-      .subscribe()
+    async function iniciarDadosTempoReal() {
+      try {
+        await supabase.realtime.setAuth()
+        if (cancelado) return
+
+        canal = supabase
+          .channel(`chat:${usuario.id}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens' }, (evento) => {
+            if (evento.eventType === 'DELETE') {
+              removerMensagemLocal(evento.old?.id)
+              return
+            }
+
+            atualizarMensagemLocal(evento.new)
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, () => {
+            carregarDados(true)
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'perfis' }, () => {
+            carregarDados(true)
+          })
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED' && !cancelado) carregarDados(true)
+          })
+      } catch (error) {
+        if (!cancelado) setErro(error.message || 'Não foi possível ativar a atualização em tempo real.')
+      }
+    }
+
+    iniciarDadosTempoReal()
 
     return () => {
-      supabase.removeChannel(canal)
+      cancelado = true
+      if (canal) supabase.removeChannel(canal)
     }
   }, [atualizarMensagemLocal, carregarDados, removerMensagemLocal, usuario.id])
 
