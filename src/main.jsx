@@ -12,6 +12,7 @@ import './audio.css'
 import './quality.css'
 import './viewport.js'
 import './network.js'
+import './delivery.js'
 import './notifications.js'
 
 createRoot(document.getElementById('root')).render(
