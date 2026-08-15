@@ -133,10 +133,14 @@
   touch-action: manipulation;
 }
 
-.attachment-image-message {
+.attachment-image-message,
+.attachment-image-loading,
+.attachment-image-error {
   width: min(320px, 68vw);
+}
+
+.attachment-image-message {
   display: grid;
-  gap: 5px;
 }
 
 .attachment-image-message a {
@@ -153,9 +157,50 @@
   object-fit: cover;
 }
 
-.attachment-caption {
-  font-size: 0.69rem;
-  opacity: 0.72;
+.attachment-image-loading {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 1.45rem;
+  animation: attachment-loading 900ms ease-in-out infinite alternate;
+}
+
+@keyframes attachment-loading {
+  to {
+    opacity: 0.58;
+  }
+}
+
+.attachment-image-error {
+  min-height: 92px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 0.75rem;
+}
+
+.attachment-image-error > span:first-child {
+  font-size: 1.25rem;
+}
+
+.attachment-image-error button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .attachment-file-message {
@@ -235,7 +280,9 @@
     right: -42px;
   }
 
-  .attachment-image-message {
+  .attachment-image-message,
+  .attachment-image-loading,
+  .attachment-image-error {
     width: min(280px, 76vw);
   }
 
