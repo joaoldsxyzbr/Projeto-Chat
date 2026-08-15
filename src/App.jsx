@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { AudioMessage, useAudioRecorder } from './audio'
 import { AttachmentDraft, AttachmentMessage, useAttachmentUpload } from './attachments'
 import { CallOverlay, useVoiceCalls } from './calls'
+
+const LISTA_VAZIA = []
 
 function obterIniciais(nome = '') {
   return nome
@@ -45,6 +47,40 @@ function Icon({ children, label, onClick, disabled = false }) {
     </button>
   )
 }
+
+const Mensagem = memo(function Mensagem({ mensagem, usuarioId }) {
+  const propria = mensagem.remetente_id === usuarioId
+  const lida = Boolean(mensagem.lida_em)
+  const entregue = lida || Boolean(mensagem.entregue_em)
+  const recibo = lida ? '✓✓✓' : entregue ? '✓✓' : '✓'
+  const reciboRotulo = lida ? 'Mensagem lida' : entregue ? 'Mensagem entregue' : 'Mensagem enviada'
+
+  return (
+    <div className={`message-row ${propria ? 'mine' : ''}`}>
+      <div className="message-bubble">
+        {mensagem.tipo === 'audio' ? (
+          <AudioMessage caminho={mensagem.arquivo_caminho} duracao={mensagem.duracao_segundos} />
+        ) : mensagem.tipo === 'imagem' || mensagem.tipo === 'arquivo' ? (
+          <AttachmentMessage mensagem={mensagem} />
+        ) : (
+          <p>{mensagem.conteudo}</p>
+        )}
+        <div className="message-meta">
+          <time>{formatarHorario(mensagem.criada_em)}</time>
+          {propria && (
+            <span
+              className={`read-receipt ${lida ? 'read' : entregue ? 'delivered' : ''}`}
+              title={lida ? 'Lida' : entregue ? 'Entregue' : 'Enviada'}
+              aria-label={reciboRotulo}
+            >
+              {recibo}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+})
 
 function TelaAutenticacao() {
   const [modo, setModo] = useState('entrar')
@@ -226,6 +262,7 @@ function Chat({ usuario }) {
   const digitacaoProntaRef = useRef(false)
   const digitandoEnviadoRef = useRef(false)
   const digitandoTimerRef = useRef(null)
+  const scrollFrameRef = useRef(null)
 
   const carregarDados = useCallback(async (silencioso = false) => {
     const sequencia = ++cargaSequenciaRef.current
@@ -346,29 +383,60 @@ function Chat({ usuario }) {
     [perfis],
   )
 
+  const { mensagensPorConversa, resumoPorConversa } = useMemo(() => {
+    const agrupadas = new Map()
+    const resumos = new Map()
+
+    mensagens.forEach((mensagem) => {
+      let grupo = agrupadas.get(mensagem.conversa_id)
+      if (!grupo) {
+        grupo = []
+        agrupadas.set(mensagem.conversa_id, grupo)
+      }
+      grupo.push(mensagem)
+
+      let resumo = resumos.get(mensagem.conversa_id)
+      if (!resumo) {
+        resumo = { ultima: null, naoLidas: 0 }
+        resumos.set(mensagem.conversa_id, resumo)
+      }
+
+      resumo.ultima = mensagem
+      if (mensagem.remetente_id !== usuario.id && !mensagem.lida_em) resumo.naoLidas += 1
+    })
+
+    return { mensagensPorConversa: agrupadas, resumoPorConversa: resumos }
+  }, [mensagens, usuario.id])
+
   const conversasMontadas = useMemo(() => {
     return conversas
       .map((conversa) => {
         const outroId = conversa.usuario_1_id === usuario.id ? conversa.usuario_2_id : conversa.usuario_1_id
         const perfil = perfisPorId.get(outroId)
-        const mensagensDaConversa = mensagens.filter((mensagem) => mensagem.conversa_id === conversa.id)
-        const ultima = mensagensDaConversa.at(-1)
-        const naoLidas = mensagensDaConversa.filter(
-          (mensagem) => mensagem.remetente_id !== usuario.id && !mensagem.lida_em,
-        ).length
+        const nome = perfil?.nome || 'Usuário'
+        const resumo = resumoPorConversa.get(conversa.id)
+        const ultima = resumo?.ultima
+        const ultimaMensagem = resumoMensagem(ultima)
 
         return {
           ...conversa,
           outroId,
           perfil,
-          nome: perfil?.nome || 'Usuário',
-          ultimaMensagem: resumoMensagem(ultima),
+          nome,
+          iniciais: obterIniciais(nome),
+          ultimaMensagem,
           ultimaData: ultima?.criada_em || conversa.criada_em,
-          naoLidas,
+          naoLidas: resumo?.naoLidas || 0,
+          textoBusca: `${nome} ${ultimaMensagem}`.toLocaleLowerCase('pt-BR'),
         }
       })
       .sort((a, b) => new Date(b.ultimaData) - new Date(a.ultimaData))
-  }, [conversas, mensagens, perfisPorId, usuario.id])
+  }, [conversas, perfisPorId, resumoPorConversa, usuario.id])
+
+  const conversasPorId = useMemo(
+    () => new Map(conversasMontadas.map((conversa) => [conversa.id, conversa])),
+    [conversasMontadas],
+  )
 
   useEffect(() => {
     if (!conversasMontadas.length) {
@@ -376,9 +444,8 @@ function Chat({ usuario }) {
       return
     }
 
-    const selecionadaExiste = conversasMontadas.some((conversa) => conversa.id === selecionadaId)
-    if (!selecionadaExiste) setSelecionadaId(conversasMontadas[0].id)
-  }, [conversasMontadas, selecionadaId])
+    if (!conversasPorId.has(selecionadaId)) setSelecionadaId(conversasMontadas[0].id)
+  }, [conversasMontadas, conversasPorId, selecionadaId])
 
   useEffect(() => {
     if (deepLinkAplicadoRef.current || carregando) return
@@ -389,7 +456,7 @@ function Chat({ usuario }) {
 
     window.history.replaceState({}, '', window.location.pathname)
 
-    if (!conversasMontadas.some((conversa) => conversa.id === conversaId)) return
+    if (!conversasPorId.has(conversaId)) return
 
     setSelecionadaId(conversaId)
     setChatAbertoMobile(true)
@@ -398,7 +465,7 @@ function Chat({ usuario }) {
     if (window.matchMedia('(max-width: 740px)').matches) {
       window.history.pushState({ projetoChatConversa: true, conversaId }, '')
     }
-  }, [carregando, conversasMontadas])
+  }, [carregando, conversasPorId])
 
   useEffect(() => {
     const aoNavegarHistorico = () => {
@@ -422,16 +489,12 @@ function Chat({ usuario }) {
     const termo = busca.trim().toLocaleLowerCase('pt-BR')
     if (!termo) return conversasMontadas
 
-    return conversasMontadas.filter((conversa) =>
-      `${conversa.nome} ${conversa.ultimaMensagem}`.toLocaleLowerCase('pt-BR').includes(termo),
-    )
+    return conversasMontadas.filter((conversa) => conversa.textoBusca.includes(termo))
   }, [busca, conversasMontadas])
 
-  const selecionada = conversasMontadas.find((conversa) => conversa.id === selecionadaId) || null
-  const mensagensSelecionadas = mensagens.filter((mensagem) => mensagem.conversa_id === selecionadaId)
-  const temNaoLidasSelecionadas = mensagensSelecionadas.some(
-    (mensagem) => mensagem.remetente_id !== usuario.id && !mensagem.lida_em,
-  )
+  const selecionada = conversasPorId.get(selecionadaId) || null
+  const mensagensSelecionadas = mensagensPorConversa.get(selecionadaId) || LISTA_VAZIA
+  const temNaoLidasSelecionadas = (resumoPorConversa.get(selecionadaId)?.naoLidas || 0) > 0
   const meuPerfil = perfisPorId.get(usuario.id)
   const meuNome = meuPerfil?.nome || usuario.user_metadata?.nome || usuario.email?.split('@')[0] || 'Usuário'
   const outroOnline = Boolean(selecionada && usuariosOnline.has(selecionada.outroId))
@@ -447,7 +510,7 @@ function Chat({ usuario }) {
     conversaId: selecionadaId,
     usuarioId: usuario.id,
     onEnviado: () => carregarDados(true),
-    onErro: (mensagem) => setErro(mensagem),
+    onErro: setErro,
   })
 
   const {
@@ -460,7 +523,7 @@ function Chat({ usuario }) {
     conversaId: selecionadaId,
     usuarioId: usuario.id,
     onEnviado: () => carregarDados(true),
-    onErro: (mensagem) => setErro(mensagem),
+    onErro: setErro,
   })
 
   const {
@@ -497,11 +560,13 @@ function Chat({ usuario }) {
       seguirFimRef.current = true
     }
 
-    if (!mudouConversa && !seguirFimRef.current) return
+    if (!mudouConversa && !seguirFimRef.current) return undefined
 
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       fimMensagensRef.current?.scrollIntoView({ block: 'end' })
     })
+
+    return () => cancelAnimationFrame(frame)
   }, [mensagensSelecionadas.length, selecionadaId])
 
   useEffect(() => {
@@ -531,14 +596,14 @@ function Chat({ usuario }) {
       if (event.data?.type !== 'ABRIR_CONVERSA') return
 
       const conversaId = event.data.conversa_id
-      if (!conversasMontadas.some((conversa) => conversa.id === conversaId)) return
+      if (!conversasPorId.has(conversaId)) return
 
       abrirConversa(conversaId)
     }
 
     navigator.serviceWorker.addEventListener('message', aoReceberMensagem)
     return () => navigator.serviceWorker.removeEventListener('message', aoReceberMensagem)
-  }, [conversasMontadas, gravando, anexo])
+  }, [conversasPorId, gravando, anexo])
 
   useEffect(() => {
     let canal
@@ -704,11 +769,16 @@ function Chat({ usuario }) {
   }
 
   function acompanharScroll() {
-    const area = mensagensAreaRef.current
-    if (!area) return
+    if (scrollFrameRef.current !== null) return
 
-    const distanciaDoFim = area.scrollHeight - area.scrollTop - area.clientHeight
-    seguirFimRef.current = distanciaDoFim < 120
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const area = mensagensAreaRef.current
+      if (!area) return
+
+      const distanciaDoFim = area.scrollHeight - area.scrollTop - area.clientHeight
+      seguirFimRef.current = distanciaDoFim < 120
+    })
   }
 
   function escolherAnexo(event, tipo) {
@@ -840,7 +910,7 @@ function Chat({ usuario }) {
                 onClick={() => abrirConversa(conversa.id)}
               >
                 <div className={`avatar ${usuariosOnline.has(conversa.outroId) ? 'presence-online' : ''}`}>
-                  {obterIniciais(conversa.nome)}
+                  {conversa.iniciais}
                 </div>
                 <div className="conversation-content">
                   <div className="conversation-topline">
@@ -872,7 +942,7 @@ function Chat({ usuario }) {
           <>
             <header className="chat-header">
               <button className="back-button" type="button" onClick={voltarConversas} aria-label="Voltar">‹</button>
-              <div className={`avatar ${outroOnline ? 'presence-online' : ''}`}>{obterIniciais(selecionada.nome)}</div>
+              <div className={`avatar ${outroOnline ? 'presence-online' : ''}`}>{selecionada.iniciais}</div>
               <div className="chat-person">
                 <strong>{selecionada.nome}</strong>
                 <span className={estaDigitando ? 'typing-status' : ''}>
@@ -897,39 +967,9 @@ function Chat({ usuario }) {
                   <div className="conversation-start">Envie a primeira mensagem para {selecionada.nome}.</div>
                 )}
 
-                {mensagensSelecionadas.map((mensagem) => {
-                  const propria = mensagem.remetente_id === usuario.id
-                  const lida = Boolean(mensagem.lida_em)
-                  const entregue = lida || Boolean(mensagem.entregue_em)
-                  const recibo = lida ? '✓✓✓' : entregue ? '✓✓' : '✓'
-                  const reciboRotulo = lida ? 'Mensagem lida' : entregue ? 'Mensagem entregue' : 'Mensagem enviada'
-
-                  return (
-                    <div key={mensagem.id} className={`message-row ${propria ? 'mine' : ''}`}>
-                      <div className="message-bubble">
-                        {mensagem.tipo === 'audio' ? (
-                          <AudioMessage caminho={mensagem.arquivo_caminho} duracao={mensagem.duracao_segundos} />
-                        ) : mensagem.tipo === 'imagem' || mensagem.tipo === 'arquivo' ? (
-                          <AttachmentMessage mensagem={mensagem} />
-                        ) : (
-                          <p>{mensagem.conteudo}</p>
-                        )}
-                        <div className="message-meta">
-                          <time>{formatarHorario(mensagem.criada_em)}</time>
-                          {propria && (
-                            <span
-                              className={`read-receipt ${lida ? 'read' : entregue ? 'delivered' : ''}`}
-                              title={lida ? 'Lida' : entregue ? 'Entregue' : 'Enviada'}
-                              aria-label={reciboRotulo}
-                            >
-                              {recibo}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                {mensagensSelecionadas.map((mensagem) => (
+                  <Mensagem key={mensagem.id} mensagem={mensagem} usuarioId={usuario.id} />
+                ))}
                 <div ref={fimMensagensRef} />
               </div>
             </div>
