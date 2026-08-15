@@ -38,29 +38,39 @@ async function marcarEntregues() {
 }
 
 async function iniciarParaUsuario(id) {
-  if (!id || usuarioId === id) return
+  if (!id || (usuarioId === id && canal)) return
 
   if (canal) await supabase.removeChannel(canal)
+  canal = null
   usuarioId = id
   atualizacaoPendente = false
 
-  canal = supabase
-    .channel(`entrega:${id}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'mensagens',
-        select: ['id', 'remetente_id'],
-      },
-      (evento) => {
-        if (evento.new?.remetente_id !== usuarioId) marcarEntregues()
-      },
-    )
-    .subscribe()
+  try {
+    await supabase.realtime.setAuth()
+    if (usuarioId !== id) return
 
-  await marcarEntregues()
+    canal = supabase
+      .channel(`entrega:${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'mensagens',
+          select: ['id', 'remetente_id'],
+        },
+        (evento) => {
+          if (evento.new?.remetente_id !== usuarioId) marcarEntregues()
+        },
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && usuarioId === id) marcarEntregues()
+      })
+
+    await marcarEntregues()
+  } catch (error) {
+    console.error('Falha ao iniciar confirmação de entrega em tempo real:', error)
+  }
 }
 
 async function parar() {
