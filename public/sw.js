@@ -1,4 +1,4 @@
-const CACHE_NAME = 'projeto-chat-v6'
+const CACHE_NAME = 'projeto-chat-v7'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
@@ -36,13 +36,25 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type !== 'CHAT_STATE' || !event.source?.id) return
+  const tipo = event.data?.type
 
-  estadosClientes.set(event.source.id, {
-    conversa_id: event.data.conversa_id || null,
-    visivel: Boolean(event.data.visivel),
-    chat_aberto: Boolean(event.data.chat_aberto),
-  })
+  if (tipo === 'CHAT_STATE' && event.source?.id) {
+    estadosClientes.set(event.source.id, {
+      conversa_id: event.data.conversa_id || null,
+      visivel: Boolean(event.data.visivel),
+      chat_aberto: Boolean(event.data.chat_aberto),
+    })
+    return
+  }
+
+  if (tipo === 'ENCERRAR_CHAMADA' && event.data?.chamada_id) {
+    event.waitUntil((async () => {
+      const notificacoes = await self.registration.getNotifications({
+        tag: `chamada-${event.data.chamada_id}`,
+      })
+      notificacoes.forEach((notificacao) => notificacao.close())
+    })())
+  }
 })
 
 self.addEventListener('fetch', (event) => {
@@ -88,7 +100,12 @@ self.addEventListener('push', (event) => {
       includeUncontrolled: true,
     })
 
-    const conversaJaAberta = Boolean(payload.conversa_id) && janelas.some((janela) => {
+    const algumaJanelaVisivel = janelas.some((janela) => janela.visibilityState === 'visible')
+    const chamada = payload.type === 'chamada' && Boolean(payload.chamada_id)
+
+    if (chamada && algumaJanelaVisivel) return
+
+    const conversaJaAberta = !chamada && Boolean(payload.conversa_id) && janelas.some((janela) => {
       const estado = estadosClientes.get(janela.id)
       return janela.visibilityState === 'visible'
         && estado?.visivel
@@ -99,13 +116,15 @@ self.addEventListener('push', (event) => {
     if (conversaJaAberta) return
 
     await self.registration.showNotification(payload.title || 'Projeto Chat', {
-      body: payload.body || 'Você recebeu uma nova mensagem.',
+      body: payload.body || (chamada ? 'Ligação de voz' : 'Você recebeu uma nova mensagem.'),
       icon: '/icons/icon-192.png',
       badge: '/icons/favicon-32.png',
-      tag: payload.conversa_id ? `conversa-${payload.conversa_id}` : 'projeto-chat',
+      tag: chamada ? `chamada-${payload.chamada_id}` : payload.conversa_id ? `conversa-${payload.conversa_id}` : 'projeto-chat',
       renotify: true,
       data: {
+        type: chamada ? 'chamada' : 'mensagem',
         conversa_id: payload.conversa_id || null,
+        chamada_id: payload.chamada_id || null,
       },
     })
   })())
@@ -116,6 +135,7 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil((async () => {
     const conversaId = event.notification.data?.conversa_id || null
+    const chamadaId = event.notification.data?.chamada_id || null
     const janelas = await self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true,
@@ -127,12 +147,18 @@ self.addEventListener('notificationclick', (event) => {
       if (conversaId) {
         janela.postMessage({ type: 'ABRIR_CONVERSA', conversa_id: conversaId })
       }
+      if (chamadaId) {
+        janela.postMessage({ type: 'SINCRONIZAR_CHAMADA', chamada_id: chamadaId })
+      }
 
       await janela.focus()
       return
     }
 
-    const destino = conversaId ? `/?conversa=${encodeURIComponent(conversaId)}` : '/'
+    const parametros = new URLSearchParams()
+    if (conversaId) parametros.set('conversa', conversaId)
+    if (chamadaId) parametros.set('chamada', chamadaId)
+    const destino = parametros.size ? `/?${parametros.toString()}` : '/'
     await self.clients.openWindow(destino)
   })())
 })
