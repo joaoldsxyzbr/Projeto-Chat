@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
 const BUCKET_AUDIO = 'audios-chat'
-const LIMITE_MP4_SEGUNDOS = 600
+const LIMITE_COMPRIMIDO_SEGUNDOS = 600
 const LIMITE_WAV_SEGUNDOS = 300
 const TAXA_WAV = 16000
 const VELOCIDADES = [1, 1.5, 2]
@@ -122,13 +122,16 @@ function criarWav(partes, taxaOrigem) {
   return new Blob([buffer], { type: 'audio/wav' })
 }
 
-function mimeMp4Suportado() {
+function mimeComprimidoSuportado() {
   if (!window.MediaRecorder?.isTypeSupported) return ''
 
   return [
     'audio/mp4;codecs=mp4a.40.2',
     'audio/mp4; codecs=mp4a.40.2',
     'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',
+    'audio/webm',
   ].find((tipo) => MediaRecorder.isTypeSupported(tipo)) || ''
 }
 
@@ -302,7 +305,7 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
   const partesRef = useRef([])
   const inicioRef = useRef(0)
   const timerRef = useRef(null)
-  const limiteRef = useRef(LIMITE_MP4_SEGUNDOS)
+  const limiteRef = useRef(LIMITE_COMPRIMIDO_SEGUNDOS)
   const acaoRef = useRef('cancelar')
 
   function limparTimer() {
@@ -435,11 +438,11 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
       inicioRef.current = Date.now()
       setTempoGravacao(0)
 
-      const mimeMp4 = mimeMp4Suportado()
+      const mimeComprimido = mimeComprimidoSuportado()
 
-      if (mimeMp4) {
-        limiteRef.current = LIMITE_MP4_SEGUNDOS
-        const gravador = new MediaRecorder(fluxo, { mimeType: mimeMp4 })
+      if (mimeComprimido) {
+        limiteRef.current = LIMITE_COMPRIMIDO_SEGUNDOS
+        const gravador = new MediaRecorder(fluxo, { mimeType: mimeComprimido })
         const conversaDaGravacao = conversaId
 
         gravadorRef.current = gravador
@@ -452,9 +455,9 @@ export function useAudioRecorder({ conversaId, usuarioId, onEnviado, onErro }) {
 
         gravador.addEventListener('stop', () => {
           const enviar = acaoRef.current === 'enviar'
-          const tipo = gravador.mimeType || mimeMp4
+          const tipo = gravador.mimeType || mimeComprimido
           const blob = new Blob(partesRef.current, { type: tipo })
-          const duracao = Math.min(LIMITE_MP4_SEGUNDOS, duracaoAtual())
+          const duracao = Math.min(LIMITE_COMPRIMIDO_SEGUNDOS, duracaoAtual())
 
           encerrarCaptura()
           if (enviar && blob.size) enviarBlob(blob, tipo, duracao, conversaDaGravacao)
