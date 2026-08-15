@@ -4,6 +4,7 @@ import { useAudioRecorder } from './audio'
 import { useAttachmentUpload } from './attachments'
 import { CallOverlay, useVoiceCalls } from './calls'
 import { Composer, MessageList } from './chat-components'
+import { criarGuardaSincronizacaoMensagens } from './message-sync-guard'
 
 const LISTA_VAZIA = []
 const CAMPOS_MENSAGEM = 'id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos'
@@ -220,6 +221,8 @@ function Chat({ usuario }) {
   const seguirFimRef = useRef(true)
   const conversaScrollRef = useRef(null)
   const cargaSequenciaRef = useRef(0)
+  const guardaMensagensRef = useRef(null)
+  if (!guardaMensagensRef.current) guardaMensagensRef.current = criarGuardaSincronizacaoMensagens()
   const deepLinkAplicadoRef = useRef(false)
   const canalDigitacaoRef = useRef(null)
   const digitacaoProntaRef = useRef(false)
@@ -229,6 +232,7 @@ function Chat({ usuario }) {
 
   const carregarDados = useCallback(async (silencioso = false) => {
     const sequencia = ++cargaSequenciaRef.current
+    const versaoMensagens = guardaMensagensRef.current.capturar()
     if (!silencioso) setCarregando(true)
 
     const [resPerfis, resConversas, resMensagens] = await Promise.all([
@@ -240,7 +244,13 @@ function Chat({ usuario }) {
         .order('criada_em'),
     ])
 
-    if (sequencia !== cargaSequenciaRef.current) return
+    const resultado = {
+      perfis: resPerfis.data || [],
+      conversas: resConversas.data || [],
+      mensagens: resMensagens.data || [],
+    }
+
+    if (sequencia !== cargaSequenciaRef.current) return resultado
 
     const falha = resPerfis.error || resConversas.error || resMensagens.error
 
@@ -248,16 +258,21 @@ function Chat({ usuario }) {
       setErro(falha.message)
     } else {
       setErro('')
-      setPerfis(resPerfis.data || [])
-      setConversas(resConversas.data || [])
-      setMensagens(resMensagens.data || [])
+      setPerfis(resultado.perfis)
+      setConversas(resultado.conversas)
+
+      if (!guardaMensagensRef.current.mudouDesde(versaoMensagens)) {
+        setMensagens(resultado.mensagens)
+      }
     }
 
     setCarregando(false)
+    return falha ? null : resultado
   }, [])
 
   const atualizarMensagemLocal = useCallback((mensagem) => {
     if (!mensagem?.id) return
+    guardaMensagensRef.current.registrarMutacao()
 
     setMensagens((atuais) => {
       const indice = atuais.findIndex((item) => item.id === mensagem.id)
@@ -284,6 +299,7 @@ function Chat({ usuario }) {
 
   const removerMensagemLocal = useCallback((id) => {
     if (!id) return
+    guardaMensagensRef.current.registrarMutacao()
     setMensagens((atuais) => atuais.filter((mensagem) => mensagem.id !== id))
   }, [])
 
@@ -586,18 +602,21 @@ function Chat({ usuario }) {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return undefined
 
-    const aoReceberMensagem = (event) => {
+    const aoReceberMensagem = async (event) => {
       if (event.data?.type !== 'ABRIR_CONVERSA') return
 
       const conversaId = event.data.conversa_id
-      if (!conversasPorId.has(conversaId)) return
+      if (!conversaId) return
+
+      const dados = await carregarDados(true)
+      if (!dados?.conversas.some((conversa) => conversa.id === conversaId)) return
 
       abrirConversa(conversaId)
     }
 
     navigator.serviceWorker.addEventListener('message', aoReceberMensagem)
     return () => navigator.serviceWorker.removeEventListener('message', aoReceberMensagem)
-  }, [conversasPorId, gravando, anexo])
+  }, [anexo, carregarDados, gravando])
 
   useEffect(() => {
     let canal
