@@ -46,9 +46,18 @@ async function iniciarParaUsuario(id) {
 
   canal = supabase
     .channel(`entrega:${id}`)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensagens' }, (evento) => {
-      if (evento.new?.remetente_id !== usuarioId) marcarEntregues()
-    })
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'mensagens',
+        select: ['id', 'remetente_id'],
+      },
+      (evento) => {
+        if (evento.new?.remetente_id !== usuarioId) marcarEntregues()
+      },
+    )
     .subscribe()
 
   await marcarEntregues()
