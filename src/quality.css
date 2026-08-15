@@ -98,6 +98,12 @@ html[data-conexao='offline'] body::after {
   }
 }
 
+.conversation-list,
+.messages-area,
+.people-list {
+  contain: layout paint;
+}
+
 .conversation-item,
 .person-item,
 .icon-button,
@@ -122,7 +128,7 @@ html[data-conexao='offline'] body::after {
   box-shadow: inset 3px 0 0 rgba(139, 150, 255, 0.7);
 }
 
-.message-row {
+.message-row:nth-last-child(2) {
   animation: message-enter 140ms ease-out both;
 }
 
@@ -229,6 +235,11 @@ html[data-conexao='offline'] body::after {
   .loading-screen,
   .auth-page {
     height: var(--app-height, 100dvh);
+  }
+
+  .chat-header {
+    background: #0c0f14;
+    backdrop-filter: none;
   }
 
   .conversation-list,
