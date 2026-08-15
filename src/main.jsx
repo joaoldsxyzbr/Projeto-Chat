@@ -15,6 +15,7 @@ import './quality.css'
 import './viewport.js'
 import './network.js'
 import './delivery.js'
+import './call-notifications.js'
 import './notifications.js'
 
 createRoot(document.getElementById('root')).render(
