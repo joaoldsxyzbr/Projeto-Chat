@@ -107,6 +107,12 @@ export function Composer({
     setMenuAnexoAberto(false)
   }, [conversaId])
 
+  useEffect(() => {
+    const fecharMenu = () => setMenuAnexoAberto(false)
+    window.addEventListener('popstate', fecharMenu)
+    return () => window.removeEventListener('popstate', fecharMenu)
+  }, [])
+
   function alterarTexto(valor) {
     setTexto(valor)
     onAlterarTexto(valor)
