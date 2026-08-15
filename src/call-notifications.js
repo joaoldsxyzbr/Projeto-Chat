@@ -13,28 +13,36 @@ function fecharNotificacao(chamadaId) {
 }
 
 async function iniciar(id) {
-  if (!id || usuarioId === id) return
+  if (!id || (usuarioId === id && canal)) return
 
   if (canal) await supabase.removeChannel(canal)
+  canal = null
   usuarioId = id
 
-  canal = supabase
-    .channel(`notificacao-chamadas:${id}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'chamadas',
-        select: ['id', 'estado'],
-      },
-      ({ new: chamada }) => {
-        if (!chamada?.id) return
-        if (chamada.estado === 'chamando' || chamada.estado === 'aceita') return
-        fecharNotificacao(chamada.id)
-      },
-    )
-    .subscribe()
+  try {
+    await supabase.realtime.setAuth()
+    if (usuarioId !== id) return
+
+    canal = supabase
+      .channel(`notificacao-chamadas:${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'chamadas',
+          select: ['id', 'estado'],
+        },
+        ({ new: chamada }) => {
+          if (!chamada?.id) return
+          if (chamada.estado === 'chamando' || chamada.estado === 'aceita') return
+          fecharNotificacao(chamada.id)
+        },
+      )
+      .subscribe()
+  } catch (error) {
+    console.error('Falha ao iniciar notificações de chamada em tempo real:', error)
+  }
 }
 
 async function parar() {
