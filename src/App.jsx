@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { AudioMessage, useAudioRecorder } from './audio'
 import { AttachmentDraft, AttachmentMessage, useAttachmentUpload } from './attachments'
+import { CallOverlay, useVoiceCalls } from './calls'
 
 function obterIniciais(nome = '') {
   return nome
@@ -462,6 +463,32 @@ function Chat({ usuario }) {
     onErro: (mensagem) => setErro(mensagem),
   })
 
+  const {
+    chamada,
+    preparando: preparandoChamada,
+    conectando: conectandoChamada,
+    mutado: chamadaMutada,
+    duracaoFormatada,
+    relayDisponivel,
+    remoteAudioRef,
+    iniciarChamada,
+    aceitarChamada,
+    recusarChamada,
+    desligarChamada,
+    alternarMudo,
+  } = useVoiceCalls({
+    usuarioId: usuario.id,
+    onErro: setErro,
+  })
+
+  const outroChamadaId = chamada
+    ? chamada.chamador_id === usuario.id
+      ? chamada.destinatario_id
+      : chamada.chamador_id
+    : null
+  const nomeOutroChamada = outroChamadaId ? perfisPorId.get(outroChamadaId)?.nome || 'Usuário' : 'Usuário'
+  const enviandoAlgo = enviando || enviandoAudio || enviandoAnexo
+
   useEffect(() => {
     const mudouConversa = conversaScrollRef.current !== selecionadaId
 
@@ -773,6 +800,7 @@ function Chat({ usuario }) {
   }
 
   async function sair() {
+    if (chamada) await desligarChamada()
     limparComposicao()
     await supabase.auth.signOut()
   }
@@ -780,8 +808,6 @@ function Chat({ usuario }) {
   if (carregando) {
     return <div className="loading-screen">Carregando conversas...</div>
   }
-
-  const enviandoAlgo = enviando || enviandoAudio || enviandoAnexo
 
   return (
     <main className={`app-shell ${chatAbertoMobile ? 'chat-open' : ''}`}>
@@ -853,6 +879,16 @@ function Chat({ usuario }) {
                   {estaDigitando ? 'digitando...' : outroOnline ? 'online' : 'offline'}
                 </span>
               </div>
+              <button
+                className="call-header-button"
+                type="button"
+                onClick={() => iniciarChamada(selecionada)}
+                aria-label={`Ligar para ${selecionada.nome}`}
+                title="Ligação de voz"
+                disabled={Boolean(chamada) || preparandoChamada || gravando || enviandoAlgo}
+              >
+                📞
+              </button>
             </header>
 
             <div className="messages-area" ref={mensagensAreaRef} onScroll={acompanharScroll}>
@@ -1003,6 +1039,22 @@ function Chat({ usuario }) {
           onSelect={criarConversa}
         />
       )}
+
+      <CallOverlay
+        chamada={chamada}
+        usuarioId={usuario.id}
+        nomeOutro={nomeOutroChamada}
+        preparando={preparandoChamada}
+        conectando={conectandoChamada}
+        mutado={chamadaMutada}
+        duracaoFormatada={duracaoFormatada}
+        relayDisponivel={relayDisponivel}
+        remoteAudioRef={remoteAudioRef}
+        onAceitar={aceitarChamada}
+        onRecusar={recusarChamada}
+        onDesligar={desligarChamada}
+        onMudo={alternarMudo}
+      />
     </main>
   )
 }
