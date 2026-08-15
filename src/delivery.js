@@ -3,20 +3,33 @@ import { supabase } from './supabase'
 let usuarioId = null
 let canal = null
 let atualizandoEntrega = false
+let atualizacaoPendente = false
 
 async function marcarEntregues() {
-  if (!usuarioId || !navigator.onLine || atualizandoEntrega) return
+  if (!usuarioId || !navigator.onLine) return
+
+  if (atualizandoEntrega) {
+    atualizacaoPendente = true
+    return
+  }
 
   atualizandoEntrega = true
 
   try {
-    const { error } = await supabase
-      .from('mensagens')
-      .update({ entregue_em: new Date().toISOString() })
-      .neq('remetente_id', usuarioId)
-      .is('entregue_em', null)
+    do {
+      atualizacaoPendente = false
+      const usuarioAtual = usuarioId
 
-    if (error) throw error
+      if (!usuarioAtual || !navigator.onLine) break
+
+      const { error } = await supabase
+        .from('mensagens')
+        .update({ entregue_em: new Date().toISOString() })
+        .neq('remetente_id', usuarioAtual)
+        .is('entregue_em', null)
+
+      if (error) throw error
+    } while (atualizacaoPendente)
   } catch (error) {
     console.error('Falha ao confirmar entrega de mensagens:', error)
   } finally {
@@ -29,6 +42,7 @@ async function iniciarParaUsuario(id) {
 
   if (canal) await supabase.removeChannel(canal)
   usuarioId = id
+  atualizacaoPendente = false
 
   canal = supabase
     .channel(`entrega:${id}`)
@@ -42,6 +56,7 @@ async function iniciarParaUsuario(id) {
 
 async function parar() {
   usuarioId = null
+  atualizacaoPendente = false
 
   if (canal) {
     await supabase.removeChannel(canal)
