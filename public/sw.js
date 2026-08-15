@@ -11,6 +11,20 @@ const STATIC_ASSETS = [
 
 const estadosClientes = new Map()
 
+async function obterJanelasAtivas() {
+  const janelas = await self.clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true,
+  })
+
+  const idsAtivos = new Set(janelas.map((janela) => janela.id))
+  for (const id of estadosClientes.keys()) {
+    if (!idsAtivos.has(id)) estadosClientes.delete(id)
+  }
+
+  return janelas
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME)
@@ -95,10 +109,7 @@ self.addEventListener('push', (event) => {
       payload = { body: event.data?.text() || 'Nova mensagem' }
     }
 
-    const janelas = await self.clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true,
-    })
+    const janelas = await obterJanelasAtivas()
 
     const algumaJanelaVisivel = janelas.some((janela) => janela.visibilityState === 'visible')
     const chamada = payload.type === 'chamada' && Boolean(payload.chamada_id)
@@ -136,10 +147,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const conversaId = event.notification.data?.conversa_id || null
     const chamadaId = event.notification.data?.chamada_id || null
-    const janelas = await self.clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true,
-    })
+    const janelas = await obterJanelasAtivas()
 
     if (janelas.length > 0) {
       const janela = janelas.find((item) => item.visibilityState === 'visible') || janelas[0]
