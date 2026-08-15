@@ -1,11 +1,11 @@
-const CACHE_NAME = 'projeto-chat-v7'
+const CACHE_NAME = 'projeto-chat-v8'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
   '/icons/favicon-32.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/icons/icon-maskable-512.png',
+  '/icons/icon-maskable-512-v2.png',
   '/icons/apple-touch-icon.png',
 ]
 

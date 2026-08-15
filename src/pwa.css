@@ -1,3 +1,66 @@
+.loading-screen {
+  min-height: var(--app-height, 100dvh);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 50% 44%, rgba(102, 117, 255, 0.16), transparent 28%),
+    #080a0d;
+  color: #8f98aa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-align: center;
+}
+
+.loading-screen::before {
+  content: '';
+  width: 78px;
+  height: 78px;
+  display: block;
+  background: url('/chat-icon.svg') center / contain no-repeat;
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.32));
+  animation: splash-mark-in 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.loading-screen::after {
+  content: '';
+  width: 46px;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(102, 117, 255, 0.16), #6675ff, rgba(102, 117, 255, 0.16));
+  background-size: 220% 100%;
+  animation: splash-progress 1.05s ease-in-out infinite;
+}
+
+@keyframes splash-mark-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splash-progress {
+  0% { background-position: 100% 0; opacity: 0.55; }
+  50% { opacity: 1; }
+  100% { background-position: -120% 0; opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-screen::before,
+  .loading-screen::after {
+    animation: none;
+  }
+}
+
 @media (display-mode: standalone) {
   html,
   body,
