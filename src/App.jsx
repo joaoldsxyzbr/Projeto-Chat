@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
-import { AudioMessage, useAudioRecorder } from './audio'
-import { AttachmentDraft, AttachmentMessage, useAttachmentUpload } from './attachments'
+import { useAudioRecorder } from './audio'
+import { useAttachmentUpload } from './attachments'
 import { CallOverlay, useVoiceCalls } from './calls'
+import { Composer, MessageList } from './chat-components'
 
 const LISTA_VAZIA = []
 const CAMPOS_MENSAGEM = 'id,conversa_id,remetente_id,conteudo,criada_em,entregue_em,lida_em,tipo,arquivo_caminho,arquivo_tipo,arquivo_nome,arquivo_tamanho,duracao_segundos'
@@ -48,40 +49,6 @@ function Icon({ children, label, onClick, disabled = false }) {
     </button>
   )
 }
-
-const Mensagem = memo(function Mensagem({ mensagem, usuarioId }) {
-  const propria = mensagem.remetente_id === usuarioId
-  const lida = Boolean(mensagem.lida_em)
-  const entregue = lida || Boolean(mensagem.entregue_em)
-  const recibo = lida ? '✓✓✓' : entregue ? '✓✓' : '✓'
-  const reciboRotulo = lida ? 'Mensagem lida' : entregue ? 'Mensagem entregue' : 'Mensagem enviada'
-
-  return (
-    <div className={`message-row ${propria ? 'mine' : ''}`}>
-      <div className="message-bubble">
-        {mensagem.tipo === 'audio' ? (
-          <AudioMessage caminho={mensagem.arquivo_caminho} duracao={mensagem.duracao_segundos} />
-        ) : mensagem.tipo === 'imagem' || mensagem.tipo === 'arquivo' ? (
-          <AttachmentMessage mensagem={mensagem} />
-        ) : (
-          <p>{mensagem.conteudo}</p>
-        )}
-        <div className="message-meta">
-          <time>{formatarHorario(mensagem.criada_em)}</time>
-          {propria && (
-            <span
-              className={`read-receipt ${lida ? 'read' : entregue ? 'delivered' : ''}`}
-              title={lida ? 'Lida' : entregue ? 'Entregue' : 'Enviada'}
-              aria-label={reciboRotulo}
-            >
-              {recibo}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-})
 
 function TelaAutenticacao() {
   const [modo, setModo] = useState('entrar')
@@ -241,10 +208,8 @@ function Chat({ usuario }) {
   const [mensagens, setMensagens] = useState([])
   const [selecionadaId, setSelecionadaId] = useState(null)
   const [busca, setBusca] = useState('')
-  const [texto, setTexto] = useState('')
   const [chatAbertoMobile, setChatAbertoMobile] = useState(false)
   const [novaConversaAberta, setNovaConversaAberta] = useState(false)
-  const [menuAnexoAberto, setMenuAnexoAberto] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
@@ -252,8 +217,6 @@ function Chat({ usuario }) {
   const [estaDigitando, setEstaDigitando] = useState(false)
   const fimMensagensRef = useRef(null)
   const mensagensAreaRef = useRef(null)
-  const fotoInputRef = useRef(null)
-  const arquivoInputRef = useRef(null)
   const seguirFimRef = useRef(true)
   const conversaScrollRef = useRef(null)
   const cargaSequenciaRef = useRef(0)
@@ -738,7 +701,6 @@ function Chat({ usuario }) {
   }
 
   function alterarTexto(valor) {
-    setTexto(valor)
     clearTimeout(digitandoTimerRef.current)
 
     if (!valor.trim()) {
@@ -757,14 +719,6 @@ function Chat({ usuario }) {
     }, 1200)
   }
 
-  function aoTeclarMensagem(event) {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-    if (window.matchMedia('(max-width: 740px)').matches) return
-
-    event.preventDefault()
-    event.currentTarget.form?.requestSubmit()
-  }
-
   function registrarHistoricoConversa(id) {
     if (!window.matchMedia('(max-width: 740px)').matches) return
 
@@ -779,7 +733,6 @@ function Chat({ usuario }) {
   function limparComposicao() {
     if (gravando) cancelarGravacao()
     if (anexo) cancelarAnexo()
-    setMenuAnexoAberto(false)
   }
 
   function abrirConversa(id) {
@@ -796,30 +749,6 @@ function Chat({ usuario }) {
 
     if (window.matchMedia('(max-width: 740px)').matches && window.history.state?.projetoChatConversa) {
       window.history.back()
-    }
-  }
-
-  function acompanharScroll() {
-    if (scrollFrameRef.current !== null) return
-
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null
-      const area = mensagensAreaRef.current
-      if (!area) return
-
-      const distanciaDoFim = area.scrollHeight - area.scrollTop - area.clientHeight
-      seguirFimRef.current = distanciaDoFim < 120
-    })
-  }
-
-  function escolherAnexo(event, tipo) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-
-    if (selecionarAnexo(file, tipo)) {
-      setMenuAnexoAberto(false)
-      setErro('')
     }
   }
 
@@ -861,19 +790,9 @@ function Chat({ usuario }) {
     abrirConversa(conversaId)
   }
 
-  async function enviarMensagem(event) {
-    event.preventDefault()
-
-    if (anexo) {
-      if (!selecionadaId || enviando || enviandoAudio || enviandoAnexo || gravando) return
-      seguirFimRef.current = true
-      setErro('')
-      await enviarAnexo()
-      return
-    }
-
-    const conteudo = texto.trim()
-    if (!conteudo || !selecionadaId || enviando || enviandoAudio || enviandoAnexo || gravando) return
+  async function enviarTexto(conteudo) {
+    const valor = conteudo.trim()
+    if (!valor || !selecionadaId || enviando || enviandoAudio || enviandoAnexo || gravando) return false
 
     clearTimeout(digitandoTimerRef.current)
     if (digitandoEnviadoRef.current) publicarDigitacao(false)
@@ -888,7 +807,7 @@ function Chat({ usuario }) {
         .insert({
           conversa_id: selecionadaId,
           remetente_id: usuario.id,
-          conteudo,
+          conteudo: valor,
         })
         .select(CAMPOS_MENSAGEM)
         .single()
@@ -896,12 +815,19 @@ function Chat({ usuario }) {
       if (error) throw error
 
       atualizarMensagemLocal(mensagem)
-      setTexto('')
+      return true
     } catch (error) {
       setErro(error.message || 'Não foi possível enviar a mensagem.')
+      return false
     } finally {
       setEnviando(false)
     }
+  }
+
+  async function enviarAnexoComScroll() {
+    seguirFimRef.current = true
+    setErro('')
+    return enviarAnexo()
   }
 
   async function sair() {
@@ -996,105 +922,34 @@ function Chat({ usuario }) {
               </button>
             </header>
 
-            <div className="messages-area" ref={mensagensAreaRef} onScroll={acompanharScroll}>
-              <div className="messages-column">
-                {mensagensSelecionadas.length === 0 && (
-                  <div className="conversation-start">Envie a primeira mensagem para {selecionada.nome}.</div>
-                )}
+            <MessageList
+              mensagens={mensagensSelecionadas}
+              usuarioId={usuario.id}
+              nome={selecionada.nome}
+              mensagensAreaRef={mensagensAreaRef}
+              fimMensagensRef={fimMensagensRef}
+              seguirFimRef={seguirFimRef}
+              scrollFrameRef={scrollFrameRef}
+            />
 
-                {mensagensSelecionadas.map((mensagem) => (
-                  <Mensagem key={mensagem.id} mensagem={mensagem} usuarioId={usuario.id} />
-                ))}
-                <div ref={fimMensagensRef} />
-              </div>
-            </div>
-
-            <form className="composer composer-simple composer-with-audio" onSubmit={enviarMensagem} aria-busy={enviandoAlgo}>
-              {gravando ? (
-                <div className="audio-recording-status" aria-live="polite">
-                  <span className="audio-recording-dot" aria-hidden="true" />
-                  <span>Gravando {tempoFormatado}</span>
-                </div>
-              ) : anexo ? (
-                <AttachmentDraft anexo={anexo} onCancel={cancelarAnexo} />
-              ) : (
-                <textarea
-                  value={texto}
-                  onChange={(event) => alterarTexto(event.target.value)}
-                  onKeyDown={aoTeclarMensagem}
-                  placeholder="Digite uma mensagem"
-                  aria-label="Mensagem"
-                  rows="1"
-                  maxLength={4000}
-                  disabled={enviandoAudio || enviandoAnexo}
-                />
-              )}
-
-              {!gravando && (
-                <div className="attachment-menu-wrap">
-                  <button
-                    className="attachment-button"
-                    type="button"
-                    onClick={() => setMenuAnexoAberto((aberto) => !aberto)}
-                    aria-label="Anexar foto ou arquivo"
-                    aria-expanded={menuAnexoAberto}
-                    disabled={enviandoAlgo || Boolean(texto.trim()) || Boolean(anexo)}
-                  >
-                    📎
-                  </button>
-                  {menuAnexoAberto && (
-                    <div className="attachment-menu" role="menu">
-                      <button type="button" role="menuitem" onClick={() => fotoInputRef.current?.click()}>
-                        <span aria-hidden="true">🖼️</span> Foto
-                      </button>
-                      <button type="button" role="menuitem" onClick={() => arquivoInputRef.current?.click()}>
-                        <span aria-hidden="true">📄</span> Arquivo
-                      </button>
-                    </div>
-                  )}
-                  <input
-                    ref={fotoInputRef}
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(event) => escolherAnexo(event, 'imagem')}
-                  />
-                  <input
-                    ref={arquivoInputRef}
-                    type="file"
-                    hidden
-                    onChange={(event) => escolherAnexo(event, 'arquivo')}
-                  />
-                </div>
-              )}
-
-              {gravando ? (
-                <button className="audio-cancel-button" type="button" onClick={cancelarGravacao} aria-label="Cancelar gravação">×</button>
-              ) : (
-                <button
-                  className="audio-record-button"
-                  type="button"
-                  onClick={() => {
-                    setMenuAnexoAberto(false)
-                    iniciarGravacao()
-                  }}
-                  aria-label="Gravar áudio"
-                  disabled={enviandoAlgo || Boolean(texto.trim()) || Boolean(anexo)}
-                >
-                  🎙️
-                </button>
-              )}
-
-              <button
-                className={`send-button ${enviandoAlgo ? 'is-sending' : ''}`}
-                type={gravando ? 'button' : 'submit'}
-                onClick={gravando ? enviarGravacao : undefined}
-                aria-label={gravando ? 'Enviar áudio' : anexo ? 'Enviar anexo' : 'Enviar mensagem'}
-                disabled={gravando ? false : enviandoAlgo || (!anexo && !texto.trim())}
-              >
-                {enviandoAlgo ? '…' : '➤'}
-              </button>
-            </form>
+            <Composer
+              conversaId={selecionadaId}
+              anexo={anexo}
+              enviando={enviando}
+              enviandoAudio={enviandoAudio}
+              enviandoAnexo={enviandoAnexo}
+              gravando={gravando}
+              tempoFormatado={tempoFormatado}
+              selecionarAnexo={selecionarAnexo}
+              cancelarAnexo={cancelarAnexo}
+              enviarAnexo={enviarAnexoComScroll}
+              iniciarGravacao={iniciarGravacao}
+              enviarGravacao={enviarGravacao}
+              cancelarGravacao={cancelarGravacao}
+              onAlterarTexto={alterarTexto}
+              onEnviarTexto={enviarTexto}
+              onErro={setErro}
+            />
           </>
         ) : (
           <div className="empty-chat">
