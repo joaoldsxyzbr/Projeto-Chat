@@ -18,10 +18,11 @@
 
 .loading-screen::before {
   content: '';
-  width: 78px;
-  height: 78px;
+  width: 84px;
+  height: 84px;
   display: block;
-  background: url('/chat-icon.svg') center / contain no-repeat;
+  border-radius: 22px;
+  background: url('/icons/icon-192-v3.png') center / contain no-repeat;
   filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.32));
   animation: splash-mark-in 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
 }

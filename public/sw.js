@@ -1,11 +1,11 @@
-const CACHE_NAME = 'projeto-chat-v8'
+const CACHE_NAME = 'projeto-chat-v9'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/chat-icon.svg',
   '/icons/favicon-32.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-512-v2.png',
+  '/icons/icon-192-v3.png',
+  '/icons/icon-512-v3.png',
+  '/icons/icon-maskable-512-v3.png',
   '/icons/apple-touch-icon.png',
 ]
 
@@ -128,7 +128,7 @@ self.addEventListener('push', (event) => {
 
     await self.registration.showNotification(payload.title || 'Projeto Chat', {
       body: payload.body || (chamada ? 'Ligação de voz' : 'Você recebeu uma nova mensagem.'),
-      icon: '/icons/icon-192.png',
+      icon: '/icons/icon-192-v3.png',
       badge: '/icons/favicon-32.png',
       tag: chamada ? `chamada-${payload.chamada_id}` : payload.conversa_id ? `conversa-${payload.conversa_id}` : 'projeto-chat',
       renotify: true,
