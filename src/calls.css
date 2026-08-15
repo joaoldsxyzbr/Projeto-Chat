@@ -195,6 +195,9 @@
 
   .call-backdrop {
     padding-inline: 12px;
+    background: rgba(4, 6, 9, 0.96);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .call-card {
